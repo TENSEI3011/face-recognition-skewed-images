@@ -1,0 +1,199 @@
+﻿"""
+run_ablation.py
+---------------
+Ablation study experiment.
+
+Tests all modality combinations to quantify each feature type's contribution:
+  - HOG only
+  - LBP only
+  - Geometry only
+  - ArcFace only
+  - HOG + LBP
+  - HOG + ArcFace
+  - LBP + ArcFace
+  - HOG + LBP + Geometry
+  - HOG + LBP + ArcFace
+  - All (HOG + LBP + Geometry + ArcFace)  ← Full pipeline
+
+Usage:
+  python experiments/run_ablation.py \
+      --gallery data/gallery \
+      --probe   data/probe \
+      --results results/ablation
+
+Face Recognition on Skewed UAV Images
+"""
+
+import sys
+import json
+import argparse
+import numpy as np
+from pathlib import Path
+from datetime import datetime
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from src.pipeline import FaceRecognitionPipeline
+from src.fusion import ALL_MODALITIES
+from evaluation.metrics import full_evaluation_report, print_report
+from evaluation.visualizer import plot_ablation_study, plot_cmc_curves
+
+
+# All ablation combinations to evaluate
+ABLATION_CONFIGS = {
+    "HOG only":                   ["hog"],
+    "LBP only":                   ["lbp"],
+    "Geometry only":              ["geometry"],
+    "ArcFace only":               ["arcface"],
+    "HOG + LBP":                  ["hog", "lbp"],
+    "HOG + ArcFace":              ["hog", "arcface"],
+    "LBP + ArcFace":              ["lbp", "arcface"],
+    "HOG + LBP + Geometry":       ["hog", "lbp", "geometry"],
+    "HOG + LBP + ArcFace":        ["hog", "lbp", "arcface"],
+    "All (Full Pipeline)":        ["hog", "lbp", "geometry", "arcface"],
+}
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Run ablation study over feature modalities."
+    )
+    parser.add_argument("--gallery",         default="data/gallery")
+    parser.add_argument("--probe",           default="data/probe")
+    parser.add_argument("--results",         default="results/ablation")
+    parser.add_argument("--pca_variance",    type=float, default=0.95)
+    parser.add_argument("--svm_kernel",      default="rbf")
+    parser.add_argument("--max_gallery",     type=int, default=None)
+    parser.add_argument("--max_probe",       type=int, default=None)
+    parser.add_argument("--predictor_path",
+                        default="models/shape_predictor_68_face_landmarks.dat")
+    return parser.parse_args()
+
+
+def run_single_ablation(
+    modalities: list[str],
+    gallery_dir: str,
+    probe_dir: str,
+    args,
+) -> dict:
+    """Train and evaluate pipeline for a given set of modalities."""
+    pipeline = FaceRecognitionPipeline(
+        modalities=modalities,
+        pca_variance=args.pca_variance,
+        svm_kernel=args.svm_kernel,
+        predictor_path=args.predictor_path,
+    )
+
+    X_gallery, y_gallery = pipeline.load_dataset(
+        gallery_dir, max_per_identity=args.max_gallery, verbose=False
+    )
+    if len(X_gallery) == 0:
+        return {"rank_1": 0, "eer": 1.0, "auc": 0.5, "d_prime": 0.0}
+
+    pipeline.train(X_gallery, y_gallery)
+
+    X_probe_raw, y_probe = pipeline.load_dataset(
+        probe_dir, max_per_identity=args.max_probe, verbose=False
+    )
+    if len(X_probe_raw) == 0:
+        return {"rank_1": 0, "eer": 1.0, "auc": 0.5, "d_prime": 0.0}
+
+    X_probe_pca = pipeline.reducer.transform(X_probe_raw)
+    top_labels, _ = pipeline.classifier.predict_top_k(X_probe_pca, k=10)
+
+    results = full_evaluation_report(
+        y_true=y_probe,
+        y_pred_top_k=top_labels,
+        X_probe=X_probe_pca,
+        y_probe=y_probe,
+    )
+    return results
+
+
+def main():
+    args = parse_args()
+    results_dir = Path(args.results)
+    results_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    print(f"\n{'='*65}")
+    print(f"  UAV Face Recognition — Ablation Study")
+    print(f"  Face Recognition | {timestamp}")
+    print(f"{'='*65}\n")
+
+    all_results = {}
+    cmc_data = {}
+
+    for config_name, modalities in ABLATION_CONFIGS.items():
+        print(f"\n[Ablation] Running: {config_name} | Modalities: {modalities}")
+        try:
+            res = run_single_ablation(
+                modalities, args.gallery, args.probe, args
+            )
+            all_results[config_name] = res
+            cmc_data[config_name] = res.get("cmc_curve", np.zeros(10))
+            print(f"  → Rank-1: {res['rank_1']*100:.2f}% | "
+                  f"EER: {res['eer']*100:.2f}% | "
+                  f"AUC: {res['auc']:.4f} | "
+                  f"d': {res['d_prime']:.4f}")
+        except Exception as e:
+            print(f"  → FAILED: {e}")
+            all_results[config_name] = {"rank_1": 0.0, "eer": 1.0, "auc": 0.5, "d_prime": 0.0}
+
+    # -------------------------------------------------------------------------
+    # Print Summary Table
+    # -------------------------------------------------------------------------
+    print(f"\n{'='*75}")
+    print(f"  ABLATION STUDY SUMMARY")
+    print(f"{'='*75}")
+    print(f"  {'Configuration':<35} {'Rank-1':>8} {'EER':>8} {'AUC':>8} {'d-prime':>9}")
+    print(f"  {'-'*35} {'-'*8} {'-'*8} {'-'*8} {'-'*9}")
+    for name, res in all_results.items():
+        print(f"  {name:<35} {res['rank_1']*100:>7.2f}% {res['eer']*100:>7.2f}% "
+              f"{res['auc']:>8.4f} {res['d_prime']:>9.4f}")
+    print(f"{'='*75}\n")
+
+    # -------------------------------------------------------------------------
+    # Save and Plot
+    # -------------------------------------------------------------------------
+    save_data = {}
+    for name, res in all_results.items():
+        save_data[name] = {
+            k: float(v) if isinstance(v, (float, np.floating)) else
+               v.tolist() if isinstance(v, np.ndarray) else v
+            for k, v in res.items()
+            if k not in ["roc_fpr", "roc_tpr"]
+        }
+
+    with open(results_dir / f"ablation_{timestamp}.json", "w") as f:
+        json.dump(save_data, f, indent=2)
+
+    plot_ablation_study(
+        all_results,
+        metric="rank_1",
+        title="Ablation Study — Rank-1 Accuracy per Feature Combination",
+        save_path=results_dir / f"ablation_rank1_{timestamp}.png",
+    )
+
+    plot_ablation_study(
+        all_results,
+        metric="eer",
+        title="Ablation Study — Equal Error Rate per Feature Combination",
+        save_path=results_dir / f"ablation_eer_{timestamp}.png",
+    )
+
+    valid_cmc = {k: v for k, v in cmc_data.items()
+                 if isinstance(v, np.ndarray) and len(v) > 0}
+    if valid_cmc:
+        plot_cmc_curves(
+            valid_cmc,
+            title="CMC Curves — Ablation Study",
+            save_path=results_dir / f"ablation_cmc_{timestamp}.png",
+        )
+
+    print(f"[Done] Ablation results saved to: {results_dir}/")
+
+
+if __name__ == "__main__":
+    main()
+

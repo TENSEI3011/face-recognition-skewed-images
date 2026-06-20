@@ -1,0 +1,77 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Exclude PDF files
+*.pdf
+*$py.class
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.spec
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+.env
+
+# Datasets (too large for git)
+data/gallery/
+data/probe/
+data/probe_pose/
+data/datasets/
+*.tgz
+*.tar.gz
+*.zip
+
+# Model weights (large binary files)
+models/shape_predictor_68_face_landmarks.dat
+models/shape_predictor_68_face_landmarks.dat.bz2
+models/*.onnx
+models/buffalo_l/
+~/.insightface/
+
+# Results and outputs
+results/
+*.png
+*.jpg
+*.jpeg
+
+# Saved ML models
+models/*.pkl
+models/*.joblib
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temp
+*.tmp
+*.temp
+test.tmp
