@@ -1,4 +1,4 @@
-﻿"""
+"""
 download_lfw.py
 ---------------
 Downloads LFW (Labeled Faces in the Wild) dataset and organizes it
@@ -29,7 +29,13 @@ from pathlib import Path
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 # ── Configuration ────────────────────────────────────────────────────────────
-LFW_URL          = "http://vis-www.cs.umass.edu/lfw/lfw.tgz"
+# Mirror list — tried in order until one succeeds
+LFW_URLS = [
+    "https://vis-www.cs.umass.edu/lfw/lfw.tgz",           # Official (HTTPS)
+    "http://vis-www.cs.umass.edu/lfw/lfw.tgz",            # Official (HTTP)
+    "https://ndownloader.figshare.com/files/5976018",     # Figshare mirror
+]
+
 DOWNLOAD_PATH    = Path("data/datasets/lfw.tgz")
 EXTRACT_PATH     = Path("data/datasets/lfw_raw")
 GALLERY_DIR      = Path("data/gallery")
@@ -61,15 +67,37 @@ def download_lfw():
         return
 
     print(f"\nDownloading LFW dataset...")
-    print(f"  URL: {LFW_URL}")
     print(f"  Destination: {DOWNLOAD_PATH}\n")
 
-    try:
-        urllib.request.urlretrieve(LFW_URL, DOWNLOAD_PATH, progress_bar)
-        print(f"\n  [OK] Download complete. ({DOWNLOAD_PATH.stat().st_size / 1_048_576:.1f} MB)")
-    except Exception as e:
-        print(f"\n  ERROR downloading: {e}")
-        sys.exit(1)
+    last_error = None
+    for url in LFW_URLS:
+        print(f"  Trying: {url}")
+        try:
+            # Add browser-like headers to avoid server blocks
+            opener = urllib.request.build_opener()
+            opener.addheaders = [("User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36")]
+            urllib.request.install_opener(opener)
+            urllib.request.urlretrieve(url, DOWNLOAD_PATH, progress_bar)
+            size_mb = DOWNLOAD_PATH.stat().st_size / 1_048_576
+            print(f"\n  [OK] Download complete. ({size_mb:.1f} MB)")
+            return
+        except Exception as e:
+            print(f"\n  Failed: {e}")
+            last_error = e
+            # Remove partial download before retrying
+            if DOWNLOAD_PATH.exists():
+                DOWNLOAD_PATH.unlink()
+
+    print(f"\n  ERROR: All mirrors failed. Last error: {last_error}")
+    print("\n  Manual download instructions:")
+    print("    1. Visit https://vis-www.cs.umass.edu/lfw/")
+    print("    2. Download 'lfw.tgz' (~180 MB)")
+    print(f"    3. Place it at: {DOWNLOAD_PATH.resolve()}")
+    print("    4. Re-run this script to organize the dataset.")
+    sys.exit(1)
 
 
 def extract_lfw():

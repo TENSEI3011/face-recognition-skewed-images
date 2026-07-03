@@ -1,14 +1,22 @@
-﻿"""
+"""
 run_degradation.py
 ------------------
-Degradation sweep experiment.
+WHAT : Degradation sweep experiment — evaluates recognition accuracy as
+       UAV imaging conditions progressively worsen.
+WHY  : The primary threat to accuracy in UAV face recognition is degradation
+       (blur, noise, compression) caused by altitude, vibration, and transmission.
+       This experiment answers: "At what degradation level does accuracy become
+       unacceptable, and which modalities degrade fastest?"
 
-Tests Rank-1 accuracy under increasing UAV degradation profiles:
-  Clean → Mild → Moderate → Severe → Extreme → Motion → Combined
+       Two sweep modes:
+         1. PROFILE SWEEP: Apply each DegradationProfile (CLEAN→COMBINED) to probe
+            images before feature extraction. Shows accuracy vs. severity level.
+         2. ALTITUDE SWEEP: Apply altitude_downsample() at 5m, 10m, 15m, 20m, 25m, 30m.
+            Shows the specific effect of distance-induced resolution loss.
 
-Two modes:
-  1. Real probe data: apply each profile to existing probe images
-  2. Gallery synthesis: apply degradation profiles to gallery images as probes
+       WHY TRAIN ON CLEAN GALLERY: We always enroll with good-quality images.
+       The question is how well the system identifies people from degraded probes.
+       Training on degraded data would mask the real-world performance gap.
 
 Usage:
   python experiments/run_degradation.py \
@@ -108,7 +116,7 @@ def main():
             verbose=False,
         )
         if len(X_probe_raw) == 0:
-            print(f"  → No samples. Skipping.")
+            print(f"  -> No samples. Skipping.")
             continue
 
         X_probe_pca = pipeline.reducer.transform(X_probe_raw)
@@ -121,7 +129,7 @@ def main():
             y_probe=y_probe,
         )
         profile_results[name] = res
-        print(f"  → Rank-1: {res['rank_1']*100:.2f}% | "
+        print(f"  -> Rank-1: {res['rank_1']*100:.2f}% | "
               f"EER: {res['eer']*100:.2f}% | "
               f"AUC: {res['auc']:.4f}")
 
@@ -174,7 +182,7 @@ def main():
                     y_alt.append(identity)
 
         if len(X_alt) == 0:
-            print(f"  → No features extracted.")
+            print(f"  -> No features extracted.")
             continue
 
         X_alt = np.array(X_alt)
@@ -188,7 +196,7 @@ def main():
             y_probe=y_alt,
         )
         altitude_results[label] = res
-        print(f"  → Rank-1: {res['rank_1']*100:.2f}% | n={len(y_alt)}")
+        print(f"  -> Rank-1: {res['rank_1']*100:.2f}% | n={len(y_alt)}")
 
     # -------------------------------------------------------------------------
     # Save and Plot

@@ -1,19 +1,21 @@
-﻿"""
+"""
 run_ablation.py
 ---------------
-Ablation study experiment.
+WHAT : Ablation study — systematically tests all 10 feature modality combinations
+       to quantify how much each modality contributes to recognition accuracy.
+WHY  : An ablation study is essential to justify design choices in a research paper.
+       Without it, we cannot know whether ArcFace alone is sufficient or whether
+       HOG/LBP/Geometry add meaningful value. Results typically show:
+         - ArcFace alone is strong at frontal faces
+         - HOG+LBP help at extreme pose where ArcFace degrades
+         - Full pipeline (all 4) achieves best average performance
 
-Tests all modality combinations to quantify each feature type's contribution:
-  - HOG only
-  - LBP only
-  - Geometry only
-  - ArcFace only
-  - HOG + LBP
-  - HOG + ArcFace
-  - LBP + ArcFace
-  - HOG + LBP + Geometry
-  - HOG + LBP + ArcFace
-  - All (HOG + LBP + Geometry + ArcFace)  ← Full pipeline
+       WHY 10 COMBINATIONS: There are 2^4 - 1 = 15 non-empty subsets of 4 modalities,
+       but we choose the 10 most meaningful ones (single modalities, useful pairs,
+       and progressively adding modalities toward the full pipeline).
+       This covers the key questions:
+         "Does adding geometry help?" (HOG+LBP vs HOG+LBP+Geometry)
+         "Is ArcFace doing most of the work?" (ArcFace only vs All)
 
 Usage:
   python experiments/run_ablation.py \
@@ -21,8 +23,7 @@ Usage:
       --probe   data/probe \
       --results results/ablation
 
-Face Recognition on Skewed UAV Images
-"""
+Face Recognition on Skewed UAV Images"""
 
 import sys
 import json
@@ -39,17 +40,23 @@ from evaluation.metrics import full_evaluation_report, print_report
 from evaluation.visualizer import plot_ablation_study, plot_cmc_curves
 
 
-# All ablation combinations to evaluate
+# ── Ablation Configurations ───────────────────────────────────────────────────
+# Each entry: display_name → list of modality strings passed to FaceRecognitionPipeline
+# Ordered to build up from single modality baselines to the full pipeline
 ABLATION_CONFIGS = {
+    # Single-modality baselines — show the raw contribution of each feature type
     "HOG only":                   ["hog"],
     "LBP only":                   ["lbp"],
     "Geometry only":              ["geometry"],
     "ArcFace only":               ["arcface"],
-    "HOG + LBP":                  ["hog", "lbp"],
-    "HOG + ArcFace":              ["hog", "arcface"],
-    "LBP + ArcFace":              ["lbp", "arcface"],
-    "HOG + LBP + Geometry":       ["hog", "lbp", "geometry"],
-    "HOG + LBP + ArcFace":        ["hog", "lbp", "arcface"],
+    # Two-modality combinations — test classical vs deep fusion
+    "HOG + LBP":                  ["hog", "lbp"],       # Classical fusion
+    "HOG + ArcFace":              ["hog", "arcface"],   # Gradient + deep
+    "LBP + ArcFace":              ["lbp", "arcface"],   # Texture + deep
+    # Three-modality
+    "HOG + LBP + Geometry":       ["hog", "lbp", "geometry"],   # Classical only (no deep)
+    "HOG + LBP + ArcFace":        ["hog", "lbp", "arcface"],    # Classical + deep, no geometry
+    # Full pipeline — should achieve best overall performance
     "All (Full Pipeline)":        ["hog", "lbp", "geometry", "arcface"],
 }
 
@@ -76,7 +83,17 @@ def run_single_ablation(
     probe_dir: str,
     args,
 ) -> dict:
-    """Train and evaluate pipeline for a given set of modalities."""
+    """
+    Train and evaluate the pipeline for a specific modality combination.
+
+    WHY RE-TRAIN FOR EACH COMBINATION: Each modality set produces a different
+    fused feature vector dimension (e.g., HOG-only = 3780-D vs. All = 4963-D).
+    PCA and SVM must be re-fitted on the correct dimensionality for each run.
+    Caching gallery features per modality would save time but adds complexity.
+
+    Returns a results dict with all evaluation metrics, or a failure-safe
+    dict with zeroed metrics if data is unavailable.
+    """
     pipeline = FaceRecognitionPipeline(
         modalities=modalities,
         pca_variance=args.pca_variance,
@@ -132,12 +149,12 @@ def main():
             )
             all_results[config_name] = res
             cmc_data[config_name] = res.get("cmc_curve", np.zeros(10))
-            print(f"  → Rank-1: {res['rank_1']*100:.2f}% | "
+            print(f"  -> Rank-1: {res['rank_1']*100:.2f}% | "
                   f"EER: {res['eer']*100:.2f}% | "
                   f"AUC: {res['auc']:.4f} | "
                   f"d': {res['d_prime']:.4f}")
         except Exception as e:
-            print(f"  → FAILED: {e}")
+            print(f"  -> FAILED: {e}")
             all_results[config_name] = {"rank_1": 0.0, "eer": 1.0, "auc": 0.5, "d_prime": 0.0}
 
     # -------------------------------------------------------------------------

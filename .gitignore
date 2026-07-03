@@ -1,9 +1,8 @@
+# ────────────────────────────────────────────────────────────────────────────
 # Python
+# ────────────────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
-
-# Exclude PDF files
-*.pdf
 *$py.class
 *.pyo
 *.pyd
@@ -22,44 +21,67 @@ var/
 wheels/
 *.spec
 
+# ────────────────────────────────────────────────────────────────────────────
+# Reports / Documents (excluded per user request)
+# ────────────────────────────────────────────────────────────────────────────
+*.pdf
+*.html
+*.docx
+
+# ────────────────────────────────────────────────────────────────────────────
+# Raw source videos (excluded — only demo output is included)
+# ────────────────────────────────────────────────────────────────────────────
+aditi data .MOV
+stuti data.mp4
+siddhant data.mp4
+
+# ────────────────────────────────────────────────────────────────────────────
+# Data — exclude non-Siddhant identities
+# ────────────────────────────────────────────────────────────────────────────
+data/gallery/aditi/
+data/gallery/stuti/
+data/probe/aditi/
+data/probe/stuti/
+data/probe_pose/*/aditi/
+data/probe_pose/*/stuti/
+data/datasets/
+data/videos/
+
+# ────────────────────────────────────────────────────────────────────────────
+# Results — exclude non-Siddhant demo outputs and experiment runs
+# ────────────────────────────────────────────────────────────────────────────
+results/demo_output/demo_aditi.avi
+results/demo_output/demo_aditi.mp4
+results/demo_output/demo_stuti.avi
+results/demo_output/demo_siddhant data.avi
+results/baseline/
+results/ablation/
+results/degradation/
+results/pose_study/
+
+# ────────────────────────────────────────────────────────────────────────────
+# Model weights (large binary files — not suitable for git)
+# ────────────────────────────────────────────────────────────────────────────
+models/shape_predictor_68_face_landmarks.dat
+models/shape_predictor_68_face_landmarks.dat.bz2
+models/*.onnx
+models/buffalo_l/
+models/*.pkl
+models/*.joblib
+~/.insightface/
+
+# ────────────────────────────────────────────────────────────────────────────
 # Virtual environments
+# ────────────────────────────────────────────────────────────────────────────
 venv/
 env/
 ENV/
 .venv/
 .env
 
-# Datasets (too large for git)
-data/gallery/
-data/probe/
-data/probe_pose/
-data/datasets/
-*.tgz
-*.tar.gz
-*.zip
-
-# Model weights (large binary files)
-models/shape_predictor_68_face_landmarks.dat
-models/shape_predictor_68_face_landmarks.dat.bz2
-models/*.onnx
-models/buffalo_l/
-~/.insightface/
-
-# Results and outputs
-results/
-*.png
-*.jpg
-*.jpeg
-
-# Saved ML models
-models/*.pkl
-models/*.joblib
-
-# Jupyter
-.ipynb_checkpoints/
-*.ipynb
-
-# IDE
+# ────────────────────────────────────────────────────────────────────────────
+# IDE / OS
+# ────────────────────────────────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
@@ -67,11 +89,24 @@ models/*.joblib
 .DS_Store
 Thumbs.db
 
-# Logs
+# ────────────────────────────────────────────────────────────────────────────
+# Jupyter
+# ────────────────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb
+
+# ────────────────────────────────────────────────────────────────────────────
+# Logs / Temp
+# ────────────────────────────────────────────────────────────────────────────
 *.log
 logs/
-
-# Temp
 *.tmp
 *.temp
 test.tmp
+
+# ────────────────────────────────────────────────────────────────────────────
+# Archives
+# ────────────────────────────────────────────────────────────────────────────
+*.tgz
+*.tar.gz
+*.zip

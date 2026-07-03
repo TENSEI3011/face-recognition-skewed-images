@@ -1,13 +1,29 @@
-﻿"""
+"""
 fusion.py
 ---------
-Feature fusion module.
-Concatenates HOG, LBP, Geometry, and ArcFace features into a single
-descriptor after per-modality L2 normalization.
+WHAT : Feature fusion module — combines HOG, LBP, Geometry, and ArcFace
+       descriptors into a single vector ready for PCA + SVM.
+WHY  : Each feature modality captures a different aspect of face appearance:
+         HOG      → edge/gradient structure (shape-based)
+         LBP      → local texture patterns (illumination-robust)
+         Geometry → landmark ratios (illumination-invariant, pose-sensitive)
+         ArcFace  → deep identity embedding (generalises across conditions)
+       Combining them exploits complementary information — when one modality
+       fails (e.g., ArcFace struggles at extreme pose), others compensate.
+       This is the key advantage of the hybrid approach over single-modality systems.
 
-Normalization is applied per modality before concatenation to prevent
-high-magnitude features (e.g., ArcFace 512-D) from dominating
-low-magnitude ones (e.g., geometry ratios).
+       FUSION STRATEGY — L2-normalize then concatenate:
+         WHY NOT SUM/AVERAGE: Different modalities have different feature dimensions
+           (HOG=3780, LBP=512, Geometry=159, ArcFace=512). Averaging dimensions
+           of different sizes is meaningless.
+         WHY L2-NORMALIZE FIRST: Without normalization, high-dimensional vectors
+           (HOG=3780-D) would dominate the Euclidean distance even if ArcFace
+           (512-D) is more discriminative. L2 normalization makes each modality
+           contribute with equal magnitude before concatenation.
+         WHY CONCATENATE: Preserves all information — no information lost to
+           projection or averaging. PCA downstream will learn to weight them optimally.
+
+Pipeline position: feature extractors → [FeatureFusion] → PCAReducer → SVM
 
 Face Recognition on Skewed UAV Images
 """
@@ -16,31 +32,33 @@ import numpy as np
 from typing import Optional
 
 
-# Modality identifiers (used for ablation studies)
+# ── Modality name constants ───────────────────────────────────────────────────
+# Using named constants avoids typo bugs when specifying modalities as strings
 MODALITY_HOG      = "hog"
 MODALITY_LBP      = "lbp"
 MODALITY_GEOMETRY = "geometry"
 MODALITY_ARCFACE  = "arcface"
 
+# All supported modalities — used as the default set and for ablation validation
 ALL_MODALITIES = [MODALITY_HOG, MODALITY_LBP, MODALITY_GEOMETRY, MODALITY_ARCFACE]
 
 
 class FeatureFusion:
     """
-    Fuses multiple face feature modalities into a single descriptor.
+    Fuses multiple face feature modalities into a single descriptor vector.
 
-    Fusion strategy:
-      1. L2-normalize each modality vector independently.
-      2. Concatenate into one vector.
-      3. Optional: apply a per-modality weight (default: equal weights).
+    The modalities parameter controls which features are included, enabling
+    ablation studies (testing all 10 combinations of 4 modalities).
 
     Parameters
     ----------
     modalities : list[str]
         Subset of ['hog', 'lbp', 'geometry', 'arcface'] to include.
-        Use this to run ablation studies.
+        Order matters — sets the order of concatenation.
     weights : dict[str, float] or None
-        Per-modality weights. None = equal weights (all 1.0).
+        Optional per-modality scaling weights applied AFTER L2-normalization.
+        None = all weights = 1.0 (equal contribution).
+        Example: {'arcface': 2.0} doubles ArcFace's contribution.
     """
 
     def __init__(
@@ -49,9 +67,10 @@ class FeatureFusion:
         weights: Optional[dict[str, float]] = None,
     ):
         self.modalities = modalities or ALL_MODALITIES
+        # Default: equal weights for all modalities (no prior preference)
         self.weights = weights or {m: 1.0 for m in self.modalities}
 
-        # Validate
+        # Validate all requested modalities are known
         for m in self.modalities:
             if m not in ALL_MODALITIES:
                 raise ValueError(f"Unknown modality: '{m}'. Choose from {ALL_MODALITIES}")
@@ -64,20 +83,21 @@ class FeatureFusion:
         arcface: Optional[np.ndarray] = None,
     ) -> np.ndarray:
         """
-        Fuse selected feature modalities.
+        Fuse selected feature modalities into one concatenated descriptor.
 
         Parameters
         ----------
         hog, lbp, geometry, arcface : np.ndarray or None
-            Feature vectors from each extractor. Pass None if not used.
+            Feature vectors from each extractor.
+            Pass None for unused modalities (must match self.modalities config).
 
         Returns
         -------
-        np.ndarray — concatenated, normalized fused descriptor.
+        np.ndarray — L2-normalized fused feature vector, shape (fused_dim,)
 
         Raises
         ------
-        ValueError if a required modality's feature is None.
+        ValueError if a modality listed in self.modalities has None feature.
         """
         feature_map = {
             MODALITY_HOG:      hog,
@@ -91,23 +111,33 @@ class FeatureFusion:
             feat = feature_map[modality]
             if feat is None:
                 raise ValueError(
-                    f"Modality '{modality}' is selected but feature is None."
+                    f"Modality '{modality}' is enabled but its feature vector is None. "
+                    "Check that the corresponding extractor is initialized in the pipeline."
                 )
-            # L2 normalize each modality
+
+            # Step 1: L2-normalize — makes each modality unit-length regardless of dimension
+            #         This is the key step that prevents high-D features from dominating
             normalized = self._l2_normalize(feat.ravel().astype(np.float32))
-            # Apply weight
+
+            # Step 2: Apply optional per-modality weight (default 1.0 = no change)
             weight = self.weights.get(modality, 1.0)
             parts.append(normalized * weight)
 
+        # Step 3: Concatenate all modality vectors into one descriptor
         return np.concatenate(parts)
 
     def fuse_from_dict(self, feature_dict: dict) -> np.ndarray:
         """
-        Fuse features supplied as a dictionary.
+        Convenience wrapper: fuse features supplied as a dictionary.
+
+        WHY THIS METHOD: The pipeline's _extract_from_aligned() builds a dict
+        of features keyed by modality name. This avoids having to unpack the
+        dict manually at each call site.
 
         Parameters
         ----------
         feature_dict : dict with keys from ALL_MODALITIES
+                       (missing keys are treated as None — fine if not in self.modalities)
         """
         return self.fuse(
             hog=feature_dict.get(MODALITY_HOG),
@@ -118,19 +148,29 @@ class FeatureFusion:
 
     @staticmethod
     def _l2_normalize(v: np.ndarray) -> np.ndarray:
-        """L2-normalize a vector. Returns zero vector if norm is near zero."""
+        """
+        L2-normalize a vector to unit length.
+
+        WHY GUARD AGAINST ZERO NORM: If a feature extractor fails completely
+        (e.g., dlib can't find landmarks) it returns a zero vector.
+        Dividing by zero would produce NaN, which propagates through PCA and SVM.
+        Returning the zero vector as-is is safer — it signals "no information"
+        without corrupting the rest of the feature vector.
+        """
         norm = np.linalg.norm(v)
         if norm < 1e-8:
-            return v
+            return v  # Return zero vector unchanged (feature extractor likely failed)
         return v / norm
 
     def compute_fused_dim(self, dims: dict[str, int]) -> int:
         """
         Compute the expected output dimension given per-modality dimensions.
 
+        Useful for pre-allocating arrays or validating feature sizes before training.
+
         Parameters
         ----------
-        dims : dict mapping modality name → feature dimension
+        dims : dict mapping modality name → feature vector length
+               e.g. {'hog': 3780, 'lbp': 512, 'geometry': 159, 'arcface': 512}
         """
         return sum(dims[m] for m in self.modalities if m in dims)
-

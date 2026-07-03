@@ -1,12 +1,32 @@
-﻿"""
+"""
 run_baseline.py
 ---------------
-Main experiment: Full pipeline on gallery/probe dataset.
+WHAT : Full pipeline baseline evaluation \u2014 trains on the gallery (enrollment)
+       and evaluates on the probe (query) set with all four feature modalities.
+WHY  : The baseline establishes the upper-bound performance of the system
+       under ideal conditions (gallery = good quality, probe = same or similar
+       conditions). All other experiments (ablation, degradation, pose) compare
+       their results against this baseline.
+
+       TRAIN/TEST SPLIT DISCIPLINE:
+         Gallery (data/gallery/) = enrollment images per identity (3\u201320 photos each)
+         Probe   (data/probe/)   = query images per identity (distinct from gallery)
+         WHY SEPARATE DIRS instead of random split: In real deployments, gallery
+         images are taken in controlled conditions (passport photo, registration);
+         probe images come from surveillance cameras. Using separate directories
+         mimics this realistic scenario rather than random 80/20 splits.
+
+       OUTPUTS:
+         - Rank-1, Rank-5, Rank-10 CMC accuracy
+         - EER, TAR@FAR=0.1%, AUC (verification metrics)
+         - d-prime discriminability
+         - ROC, CMC, confusion matrix plots
+         - Excel results spreadsheet
 
 Usage:
-  python experiments/run_baseline.py \
-      --gallery data/gallery \
-      --probe   data/probe \
+  python experiments/run_baseline.py \\
+      --gallery data/gallery \\
+      --probe   data/probe \\
       --results results/baseline
 
 Expected directory structure:
@@ -180,7 +200,7 @@ def main():
 
     with open(results_dir / f"metrics_{timestamp}.json", "w") as f:
         json.dump(metrics_to_save, f, indent=2)
-    print(f"[Done] Metrics saved → {results_dir}/metrics_{timestamp}.json")
+    print(f"[Done] Metrics saved -> {results_dir}/metrics_{timestamp}.json")
 
     # -------------------------------------------------------------------------
     # 7. Generate Plots
