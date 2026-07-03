@@ -72,7 +72,36 @@ Geometric Alignment → 112×112
 pip install -r requirements.txt
 ```
 
-### 2. Run Setup (downloads dlib 68-point landmark model)
+### 2. Download Required Models
+
+> **The models directory is not included in this repo (too large). Download manually:**
+
+#### dlib 68-Point Facial Landmark Model (~100 MB)
+Used by the Geometry feature extractor to detect facial landmarks.
+
+| Method | Link |
+|--------|------|
+| **Direct download** | [shape_predictor_68_face_landmarks.dat.bz2](http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2) |
+| **Mirror (GitHub)** | [davisking/dlib-models](https://github.com/davisking/dlib-models/raw/master/shape_predictor_68_face_landmarks.dat.bz2) |
+
+After downloading, extract and place it at:
+```
+models/shape_predictor_68_face_landmarks.dat
+```
+
+Or just run the auto-downloader:
+```bash
+python setup.py
+```
+
+#### InsightFace ArcFace Model — buffalo_l (~300 MB)
+Downloaded **automatically** on first run by InsightFace. No manual steps needed.
+```bash
+# First run will download buffalo_l to ~/.insightface/models/buffalo_l/
+python -c "from src.features.arcface_features import ArcFaceExtractor; ArcFaceExtractor()"
+```
+
+### 3. Run Setup (auto-downloads dlib model if missing)
 ```bash
 python setup.py
 ```
