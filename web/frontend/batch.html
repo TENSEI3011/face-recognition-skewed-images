@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Batch Identification — Face Recognition UAV System</title>
+  <meta name="description" content="Upload multiple images or a ZIP file for bulk face recognition.">
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    .thumb-img {
+      width: 70px; height: 70px; object-fit: cover;
+      border: 1px solid var(--panel-line);
+      cursor: pointer; transition: opacity .15s;
+    }
+    .thumb-img:hover { opacity: .85; }
+    /* result row states: handled by style.css (.result-known, .result-unknown, .result-error) */
+    #batch-progress { display:none; }
+  </style>
+</head>
+<body>
+
+<!-- ── Sidebar ─────────────────────────────────────────────────────── -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-title">Face Recognition<br>UAV System</div>
+    <div class="logo-subtitle">Drone Surveillance Pipeline</div>
+    <span class="sidebar-badge">DRDO Research</span>
+  </div>
+
+  <nav class="sidebar-nav">
+    <div class="nav-section">Navigation</div>
+    <a href="/"          class="nav-link"><span class="icon">⊞</span> Dashboard</a>
+    <a href="/gallery"   class="nav-link"><span class="icon">👤</span> Gallery</a>
+    <a href="/identify"  class="nav-link"><span class="icon">🔍</span> Identify Face</a>
+    <a href="/demo"      class="nav-link"><span class="icon">📷</span> Live Demo</a>
+
+    <div class="nav-section" style="margin-top:12px">Analysis</div>
+    <a href="/results"   class="nav-link"><span class="icon">📊</span> Experiments & Results</a>
+    <a href="/analytics" class="nav-link"><span class="icon">📈</span> Analytics</a>
+    <a href="/batch"     class="nav-link"><span class="icon">🗂️</span> Batch ID</a>
+
+    <div class="nav-section" style="margin-top:12px">Security</div>
+    <a href="/watchlist" class="nav-link"><span class="icon">🚨</span> Watchlist</a>
+    <a href="/audit"     class="nav-link"><span class="icon">📋</span> Audit Log</a>
+    <a href="/config"    class="nav-link"><span class="icon">⚙️</span> Configuration</a>
+    <a href="/docs"      class="nav-link" target="_blank"><span class="icon">📄</span> API Docs</a>
+  </nav>
+
+  <div class="pipeline-status">
+    <div class="status-dot loading" id="status-dot"></div>
+    <span id="status-text" style="color:var(--dim);font-size:.73rem">Connecting…</span>
+  </div>
+  <div class="sidebar-footer">
+    HOG · LBP · Geometry · ArcFace<br>MTCNN → PCA → SVM
+  </div>
+</aside>
+
+<!-- ── Main ────────────────────────────────────────────────────────── -->
+<div class="main">
+  <header class="topbar">
+    <div>
+      <div class="topbar-title">🗂️ Batch Identification</div>
+      <div class="topbar-sub">Upload multiple images or a ZIP — process all at once</div>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn btn-secondary btn-sm" id="export-csv-btn" onclick="exportCSV()" style="display:none">
+        ⬇ Export CSV
+      </button>
+    </div>
+  </header>
+
+  <div class="content">
+    <div id="alert-zone"></div>
+
+    <div class="grid-2 mb-4">
+      <!-- Upload -->
+      <div class="card">
+        <div class="card-title"><span class="icon">📁</span> Upload Images</div>
+        <div class="upload-zone" id="batch-drop-zone" onclick="document.getElementById('batch-file-input').click()">
+          <div class="upload-icon">📁</div>
+          <div class="upload-text">
+            <strong>Click to select</strong> or drag &amp; drop<br>
+            JPG, PNG, BMP or a single <strong>ZIP</strong> file<br>
+            <small style="color:var(--muted)">Max 50 images per batch</small>
+          </div>
+        </div>
+        <input type="file" id="batch-file-input" multiple accept=".jpg,.jpeg,.png,.bmp,.webp,.zip" style="display:none" onchange="previewFiles(this.files)">
+
+        <div id="file-preview" class="mt-3" style="display:none">
+          <div class="text-sm text-muted mb-2" id="file-count-label"></div>
+          <div id="file-thumbs" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+        </div>
+      </div>
+
+      <!-- Settings -->
+      <div class="card">
+        <div class="card-title"><span class="icon">⚙️</span> Settings</div>
+        <div class="form-group">
+          <label class="form-label">Confidence Threshold</label>
+          <input type="range" id="batch-threshold" min="0.1" max="0.9" step="0.05" value="0.35"
+                 oninput="document.getElementById('threshold-val').textContent = (this.value*100).toFixed(0)+'%'">
+          <div class="text-sm text-muted">Threshold: <strong id="threshold-val">35%</strong></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Top-K Candidates</label>
+          <select class="form-control" id="batch-topk">
+            <option value="1">Top-1</option>
+            <option value="3" selected>Top-3</option>
+            <option value="5">Top-5</option>
+          </select>
+        </div>
+        <button class="btn btn-primary btn-lg w-full" id="batch-run-btn" onclick="runBatch()" disabled>
+          Run Batch Identification
+        </button>
+
+        <!-- Progress -->
+        <div id="batch-progress" class="mt-3">
+          <div class="text-sm text-muted mb-1">Processing…</div>
+          <div class="progress"><div class="progress-bar" id="batch-progress-bar" style="width:0%"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Summary row (after run) -->
+    <div class="grid-4 mb-4" id="batch-summary-row" style="display:none">
+      <div class="stat-card">
+        <div class="stat-label">Total Processed</div>
+        <div class="stat-value" id="b-total">—</div>
+      </div>
+      <div class="stat-card green">
+        <div class="stat-label">Faces Detected</div>
+        <div class="stat-value" id="b-detected">—</div>
+      </div>
+      <div class="stat-card blue">
+        <div class="stat-label">Known Identities</div>
+        <div class="stat-value" id="b-known">—</div>
+      </div>
+      <div class="stat-card" style="border-color:#fca5a5">
+        <div class="stat-label">Watchlist Alerts</div>
+        <div class="stat-value" id="b-alerts" style="color:var(--danger)">—</div>
+      </div>
+    </div>
+
+    <!-- Results table -->
+    <div class="card" id="batch-results-card" style="display:none">
+      <div class="card-title"><span class="icon">📋</span> Results</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Preview</th>
+              <th>Filename</th>
+              <th>Detected?</th>
+              <th>Identity</th>
+              <th>Confidence</th>
+              <th>Known?</th>
+              <th>Alert?</th>
+              <th>Candidates</th>
+            </tr>
+          </thead>
+          <tbody id="batch-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Thumbnail lightbox -->
+<div id="lightbox" onclick="this.style.display='none'"
+     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:9999;cursor:pointer;align-items:center;justify-content:center">
+  <img id="lightbox-img" src="" alt="Preview" style="max-width:90vw;max-height:90vh;border:1px solid var(--panel-line)">
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/batch.js"></script>
+</body>
+</html>

@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live Demo — Face Recognition UAV System</title>
+  <meta name="description" content="Real-time webcam face recognition and video processing demo.">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-title">Face Recognition<br>UAV System</div>
+    <div class="logo-subtitle">Drone Surveillance Pipeline</div>
+    <span class="sidebar-badge">DRDO Research</span>
+  </div>
+  <nav class="sidebar-nav">
+    <div class="nav-section">Navigation</div>
+    <a href="/"         class="nav-link"><span class="icon">⊞</span> Dashboard</a>
+    <a href="/gallery"  class="nav-link"><span class="icon">👤</span> Gallery</a>
+    <a href="/identify" class="nav-link"><span class="icon">🔍</span> Identify Face</a>
+    <a href="/demo"     class="nav-link"><span class="icon">📷</span> Live Demo</a>
+
+    <div class="nav-section" style="margin-top:12px">Analysis</div>
+    <a href="/results"   class="nav-link"><span class="icon">📊</span> Experiments &amp; Results</a>
+    <a href="/analytics" class="nav-link"><span class="icon">📈</span> Analytics</a>
+    <a href="/batch"     class="nav-link"><span class="icon">🗂️</span> Batch ID</a>
+
+    <div class="nav-section" style="margin-top:12px">Security</div>
+    <a href="/watchlist" class="nav-link"><span class="icon">🚨</span> Watchlist</a>
+    <a href="/audit"     class="nav-link"><span class="icon">📋</span> Audit Log</a>
+    <a href="/config"    class="nav-link"><span class="icon">⚙️</span> Configuration</a>
+    <a href="/docs"      class="nav-link" target="_blank"><span class="icon">📄</span> API Docs</a>
+  </nav>
+  <div class="pipeline-status">
+    <div class="status-dot loading" id="status-dot"></div>
+    <span id="status-text" style="color:var(--dim);font-size:.73rem">Connecting…</span>
+  </div>
+  <div class="sidebar-footer">HOG · LBP · Geometry · ArcFace</div>
+</aside>
+
+<div class="main">
+  <header class="topbar">
+    <div>
+      <div class="topbar-title">Live Demo</div>
+      <div class="topbar-sub">Real-time webcam recognition or video file processing</div>
+    </div>
+  </header>
+
+  <div class="content">
+    <div id="alert-zone"></div>
+
+    <!-- Mode selector -->
+    <div class="tabs mb-4" style="margin-bottom:0">
+      <button class="tab-btn active" id="tab-live-btn" onclick="setMode('live')">📷 Live Webcam</button>
+      <button class="tab-btn" id="tab-video-btn" onclick="setMode('video')">🎥 Upload Video</button>
+    </div>
+
+    <!-- ── LIVE MODE ──────────────────────────────────────────── -->
+    <div id="mode-live">
+      <div class="grid-2 mt-4">
+        <div>
+          <!-- Video feed -->
+          <div class="video-container mb-3" style="max-width:none">
+            <video id="webcam-video" autoplay muted playsinline></video>
+            <canvas id="stream-canvas"></canvas>
+            <div class="live-badge" id="live-badge">● LIVE</div>
+            <div class="video-overlay-text" id="cam-placeholder">
+              <div style="font-size:2rem;margin-bottom:8px">📷</div>
+              Camera not started
+            </div>
+          </div>
+
+          <div class="flex gap-2">
+            <button class="btn btn-success" id="start-btn" onclick="startStream()">▶ Start Recognition</button>
+            <button class="btn btn-danger btn-sm hidden" id="stop-btn" onclick="stopStream()">■ Stop</button>
+            <button class="btn btn-secondary btn-sm" id="snapshot-btn" onclick="takeSnapshot()" style="margin-left:auto">📸 Snapshot</button>
+          </div>
+        </div>
+
+        <div>
+          <div class="card mb-3">
+            <div class="card-title"><span class="icon">⚙️</span> Stream Settings</div>
+
+            <div class="form-group">
+              <label class="form-label">Confidence Threshold: <span id="live-thresh-val">35%</span></label>
+              <input type="range" id="live-threshold" min="10" max="90" value="35"
+                oninput="document.getElementById('live-thresh-val').textContent = this.value + '%'; updateThreshold()">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Frame Rate</label>
+              <select id="fps-select" class="form-control">
+                <option value="500">~2 fps (slow devices / high accuracy)</option>
+                <option value="333" selected>~3 fps (balanced)</option>
+                <option value="200">~5 fps (fast devices)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="card mb-3">
+            <div class="card-title"><span class="icon">👥</span> Detected Faces</div>
+            <div id="live-faces">
+              <p class="text-sm text-muted">Start the stream to see detections.</p>
+            </div>
+            <div class="mt-3" style="font-size:.75rem;color:var(--muted)">
+              Frames processed: <span id="frame-count" class="font-mono">0</span><br>
+              Faces this session: <span id="face-count" class="font-mono">0</span>
+            </div>
+          </div>
+
+          <!-- ── Retrain & Reload card ── -->
+          <div class="card" id="retrain-card">
+            <div class="card-title" style="display:flex;align-items:center;gap:8px">
+              <span class="icon">🔄</span> Retrain &amp; Reload
+              <span id="retrain-badge" style="
+                margin-left:auto;font-size:.7rem;padding:2px 8px;border-radius:10px;
+                background:var(--surface2,#2a2a3a);color:var(--dim,#888);
+              ">Idle</span>
+            </div>
+            <p class="text-sm text-muted" style="margin-bottom:10px">
+              Added new faces to the gallery? Retrain the classifier and the live stream
+              will recognise them <strong>immediately</strong> — no restart needed.
+            </p>
+            <button class="btn btn-primary w-full" id="retrain-btn" onclick="triggerRetrain()">
+              🔄 Retrain from Gallery
+            </button>
+            <!-- Live log panel (hidden until retrain starts) -->
+            <div id="retrain-log-wrap" style="display:none;margin-top:12px">
+              <div style="font-size:.72rem;color:var(--dim);margin-bottom:4px">Training log</div>
+              <div id="retrain-log" style="
+                background:var(--bg,#111);border:1px solid var(--border,#333);
+                border-radius:6px;padding:8px;max-height:160px;overflow-y:auto;
+                font-family:monospace;font-size:.72rem;color:var(--fg,#e0e0e0);
+                white-space:pre-wrap;line-height:1.5;
+              "></div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- ── VIDEO UPLOAD MODE ──────────────────────────────────── -->
+    <div id="mode-video" class="hidden mt-4">
+      <div class="grid-2">
+        <div>
+          <div class="card mb-3">
+            <div class="card-title"><span class="icon">🎥</span> Upload Video</div>
+            <div class="upload-zone mb-3" id="video-upload-zone" onclick="document.getElementById('video-input').click()">
+              <div class="upload-icon">🎞️</div>
+              <div class="upload-text"><strong>Click to upload</strong> video file<br>
+                <span style="font-size:.75rem">MP4, AVI, MOV, MKV</span>
+              </div>
+            </div>
+            <input type="file" id="video-input" accept="video/*" style="display:none">
+            <div id="video-file-name" class="text-sm text-muted mb-3"></div>
+
+            <div class="form-group">
+              <label class="form-label">Process every N frames: <span id="every-n-val">3</span></label>
+              <input type="range" id="every-n" min="1" max="10" value="3"
+                oninput="document.getElementById('every-n-val').textContent = this.value">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Confidence Threshold: <span id="vid-thresh-val">35%</span></label>
+              <input type="range" id="vid-threshold" min="10" max="90" value="35"
+                oninput="document.getElementById('vid-thresh-val').textContent = this.value + '%'">
+            </div>
+
+            <button class="btn btn-primary w-full" id="process-btn" onclick="processVideo()">⚙️ Process Video</button>
+          </div>
+        </div>
+
+        <div>
+          <div class="card" id="video-result-card">
+            <div class="card-title"><span class="icon">📋</span> Processing Result</div>
+            <div id="video-result-content">
+              <p class="text-sm text-muted">Upload a video and click "Process Video".</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/demo.js"></script>
+</body>
+</html>

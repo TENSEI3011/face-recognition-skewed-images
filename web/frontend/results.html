@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Experiments & Results — Face Recognition UAV System</title>
+  <meta name="description" content="View experiment results including CMC, ROC, confusion matrices, and metrics for baseline, ablation, pose and degradation studies.">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-title">Face Recognition<br>UAV System</div>
+    <div class="logo-subtitle">Drone Surveillance Pipeline</div>
+    <span class="sidebar-badge">DRDO Research</span>
+  </div>
+  <nav class="sidebar-nav">
+    <div class="nav-section">Navigation</div>
+    <a href="/"         class="nav-link"><span class="icon">⊞</span> Dashboard</a>
+    <a href="/gallery"  class="nav-link"><span class="icon">👤</span> Gallery</a>
+    <a href="/identify" class="nav-link"><span class="icon">🔍</span> Identify Face</a>
+    <a href="/demo"     class="nav-link"><span class="icon">📷</span> Live Demo</a>
+
+    <div class="nav-section" style="margin-top:12px">Analysis</div>
+    <a href="/results"   class="nav-link"><span class="icon">📊</span> Experiments &amp; Results</a>
+    <a href="/analytics" class="nav-link"><span class="icon">📈</span> Analytics</a>
+    <a href="/batch"     class="nav-link"><span class="icon">🗂️</span> Batch ID</a>
+
+    <div class="nav-section" style="margin-top:12px">Security</div>
+    <a href="/watchlist" class="nav-link"><span class="icon">🚨</span> Watchlist</a>
+    <a href="/audit"     class="nav-link"><span class="icon">📋</span> Audit Log</a>
+    <a href="/config"    class="nav-link"><span class="icon">⚙️</span> Configuration</a>
+    <a href="/docs"      class="nav-link" target="_blank"><span class="icon">📄</span> API Docs</a>
+  </nav>
+  <div class="pipeline-status">
+    <div class="status-dot loading" id="status-dot"></div>
+    <span id="status-text" style="color:var(--dim);font-size:.73rem">Connecting…</span>
+  </div>
+  <div class="sidebar-footer">HOG · LBP · Geometry · ArcFace</div>
+</aside>
+
+<div class="main">
+  <header class="topbar">
+    <div>
+      <div class="topbar-title">Experiments & Results</div>
+      <div class="topbar-sub">View plots, metrics, and run new experiments</div>
+    </div>
+  </header>
+
+  <div class="content">
+    <div id="alert-zone"></div>
+
+    <!-- Experiment tabs -->
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('baseline')">Baseline</button>
+      <button class="tab-btn" onclick="switchTab('ablation')">Ablation Study</button>
+      <button class="tab-btn" onclick="switchTab('pose_study')">Pose Study</button>
+      <button class="tab-btn" onclick="switchTab('degradation')">Degradation</button>
+    </div>
+
+    <!-- Each experiment tab panel -->
+    <div id="tab-baseline"    class="tab-panel active" data-exp="baseline"></div>
+    <div id="tab-ablation"    class="tab-panel"        data-exp="ablation"></div>
+    <div id="tab-pose_study"  class="tab-panel"        data-exp="pose_study"></div>
+    <div id="tab-degradation" class="tab-panel"        data-exp="degradation"></div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/results.js"></script>
+</body>
+</html>

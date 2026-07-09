@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Analytics — Face Recognition UAV System</title>
+  <meta name="description" content="Recognition analytics: daily trends, identity distribution, and activity heatmap.">
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    /* Canvas: no border-radius — terminal aesthetic uses sharp edges */
+    .chart-card { padding: 20px 22px; }
+    .chart-title { font-family:'IBM Plex Mono',monospace; font-size:.72rem; font-weight:600; text-transform:uppercase; letter-spacing:.1em; color:var(--phosphor); margin-bottom:16px;display:flex;align-items:center;gap:8px; }
+  </style>
+</head>
+<body>
+
+<!-- ── Sidebar ─────────────────────────────────────────────────────── -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-title">Face Recognition<br>UAV System</div>
+    <div class="logo-subtitle">Drone Surveillance Pipeline</div>
+    <span class="sidebar-badge">DRDO Research</span>
+  </div>
+
+  <nav class="sidebar-nav">
+    <div class="nav-section">Navigation</div>
+    <a href="/"          class="nav-link"><span class="icon">⊞</span> Dashboard</a>
+    <a href="/gallery"   class="nav-link"><span class="icon">👤</span> Gallery</a>
+    <a href="/identify"  class="nav-link"><span class="icon">🔍</span> Identify Face</a>
+    <a href="/demo"      class="nav-link"><span class="icon">📷</span> Live Demo</a>
+
+    <div class="nav-section" style="margin-top:12px">Analysis</div>
+    <a href="/results"   class="nav-link"><span class="icon">📊</span> Experiments & Results</a>
+    <a href="/analytics" class="nav-link"><span class="icon">📈</span> Analytics</a>
+    <a href="/batch"     class="nav-link"><span class="icon">🗂️</span> Batch ID</a>
+
+    <div class="nav-section" style="margin-top:12px">Security</div>
+    <a href="/watchlist" class="nav-link"><span class="icon">🚨</span> Watchlist</a>
+    <a href="/audit"     class="nav-link"><span class="icon">📋</span> Audit Log</a>
+    <a href="/config"    class="nav-link"><span class="icon">⚙️</span> Configuration</a>
+    <a href="/docs"      class="nav-link" target="_blank"><span class="icon">📄</span> API Docs</a>
+  </nav>
+
+  <div class="pipeline-status">
+    <div class="status-dot loading" id="status-dot"></div>
+    <span id="status-text" style="color:var(--dim);font-size:.73rem">Connecting…</span>
+  </div>
+  <div class="sidebar-footer">
+    HOG · LBP · Geometry · ArcFace<br>MTCNN → PCA → SVM
+  </div>
+</aside>
+
+<!-- ── Main ────────────────────────────────────────────────────────── -->
+<div class="main">
+  <header class="topbar">
+    <div>
+      <div class="topbar-title">📈 Analytics Dashboard</div>
+      <div class="topbar-sub">Recognition trends and identity statistics</div>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn btn-secondary btn-sm" onclick="loadAll()">↻ Refresh</button>
+    </div>
+  </header>
+
+  <div class="content">
+    <div id="alert-zone"></div>
+
+    <!-- KPI cards -->
+    <div class="grid-4 mb-4">
+      <div class="stat-card">
+        <div class="stat-label">Total Identifications</div>
+        <div class="stat-value" id="kpi-total">—</div>
+        <div class="stat-sub">All time</div>
+      </div>
+      <div class="stat-card green">
+        <div class="stat-label">Known Rate</div>
+        <div class="stat-value" id="kpi-known-pct">—</div>
+        <div class="stat-sub" id="kpi-known-sub">—</div>
+      </div>
+      <div class="stat-card blue">
+        <div class="stat-label">Unknown Detections</div>
+        <div class="stat-value" id="kpi-unknown">—</div>
+        <div class="stat-sub">Below threshold</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Top Identity</div>
+        <div class="stat-value" id="kpi-top" style="font-size:1.1rem">—</div>
+        <div class="stat-sub" id="kpi-top-count">—</div>
+      </div>
+    </div>
+
+    <div class="grid-2 mb-4">
+      <!-- Daily chart -->
+      <div class="card chart-card">
+        <div class="chart-title"><span class="icon">📅</span> Daily Identifications (Last 30 Days)</div>
+        <canvas id="daily-chart" height="200"></canvas>
+      </div>
+
+      <!-- Identity distribution -->
+      <div class="card chart-card">
+        <div class="chart-title"><span class="icon">👥</span> Per-Identity Recognition Counts</div>
+        <canvas id="identity-chart" height="200"></canvas>
+      </div>
+    </div>
+
+    <!-- Hourly heatmap -->
+    <div class="card chart-card mb-4">
+      <div class="chart-title"><span class="icon">🕐</span> Hourly Activity (Past 7 Days)</div>
+      <canvas id="hourly-chart" height="90"></canvas>
+    </div>
+
+    <!-- Top identities table -->
+    <div class="card">
+      <div class="card-title"><span class="icon">🏆</span> Identity Leaderboard</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Rank</th><th>Identity</th><th>Total Detections</th><th>Known</th><th>Match Rate</th><th>Bar</th></tr>
+          </thead>
+          <tbody id="identity-tbody">
+            <tr><td colspan="6" style="text-align:center;padding:20px" class="text-muted">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/analytics.js"></script>
+</body>
+</html>

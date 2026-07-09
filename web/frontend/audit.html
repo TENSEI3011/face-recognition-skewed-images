@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audit Log — Face Recognition UAV System</title>
+  <meta name="description" content="Searchable audit log of all face identification events with PDF and CSV export.">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<!-- ── Sidebar ─────────────────────────────────────────────────────── -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-title">Face Recognition<br>UAV System</div>
+    <div class="logo-subtitle">Drone Surveillance Pipeline</div>
+    <span class="sidebar-badge">DRDO Research</span>
+  </div>
+
+  <nav class="sidebar-nav">
+    <div class="nav-section">Navigation</div>
+    <a href="/"          class="nav-link"><span class="icon">⊞</span> Dashboard</a>
+    <a href="/gallery"   class="nav-link"><span class="icon">👤</span> Gallery</a>
+    <a href="/identify"  class="nav-link"><span class="icon">🔍</span> Identify Face</a>
+    <a href="/demo"      class="nav-link"><span class="icon">📷</span> Live Demo</a>
+
+    <div class="nav-section" style="margin-top:12px">Analysis</div>
+    <a href="/results"   class="nav-link"><span class="icon">📊</span> Experiments & Results</a>
+    <a href="/analytics" class="nav-link"><span class="icon">📈</span> Analytics</a>
+    <a href="/batch"     class="nav-link"><span class="icon">🗂️</span> Batch ID</a>
+
+    <div class="nav-section" style="margin-top:12px">Security</div>
+    <a href="/watchlist" class="nav-link"><span class="icon">🚨</span> Watchlist</a>
+    <a href="/audit"     class="nav-link"><span class="icon">📋</span> Audit Log</a>
+    <a href="/config"    class="nav-link"><span class="icon">⚙️</span> Configuration</a>
+    <a href="/docs"      class="nav-link" target="_blank"><span class="icon">📄</span> API Docs</a>
+  </nav>
+
+  <div class="pipeline-status">
+    <div class="status-dot loading" id="status-dot"></div>
+    <span id="status-text" style="color:var(--dim);font-size:.73rem">Connecting…</span>
+  </div>
+  <div class="sidebar-footer">
+    HOG · LBP · Geometry · ArcFace<br>
+    MTCNN → PCA → SVM
+  </div>
+</aside>
+
+<!-- ── Main ────────────────────────────────────────────────────────── -->
+<div class="main">
+  <header class="topbar">
+    <div>
+      <div class="topbar-title">📋 Audit Log</div>
+      <div class="topbar-sub">All identification events — searchable, exportable</div>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn btn-secondary btn-sm" onclick="loadAudit()">↻ Refresh</button>
+      <a href="/api/audit/export/csv" class="btn btn-secondary btn-sm" target="_blank">⬇ CSV</a>
+      <a href="/api/audit/export/pdf" class="btn btn-primary btn-sm" target="_blank">📄 PDF Report</a>
+    </div>
+  </header>
+
+  <div class="content">
+    <div id="alert-zone"></div>
+
+    <!-- Stats row -->
+    <div class="grid-4 mb-4" id="audit-stats">
+      <div class="stat-card">
+        <div class="stat-label">Total Events</div>
+        <div class="stat-value" id="stat-total">—</div>
+        <div class="stat-sub">Logged identifications</div>
+      </div>
+      <div class="stat-card blue">
+        <div class="stat-label">Known Detections</div>
+        <div class="stat-value" id="stat-known">—</div>
+        <div class="stat-sub" id="stat-known-pct">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Unknown</div>
+        <div class="stat-value" id="stat-unknown">—</div>
+        <div class="stat-sub">Below threshold</div>
+      </div>
+      <div class="stat-card green">
+        <div class="stat-label">Top Identity</div>
+        <div class="stat-value" id="stat-top" style="font-size:1.1rem">—</div>
+        <div class="stat-sub" id="stat-top-count">—</div>
+      </div>
+    </div>
+
+    <!-- Filter bar -->
+    <div class="card mb-4">
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+        <div class="form-group" style="flex:1;min-width:180px;margin:0">
+          <label class="form-label">Search Identity</label>
+          <input class="form-control" type="text" id="filter-identity" placeholder="Filter by identity…" oninput="filterTable()">
+        </div>
+        <div class="form-group" style="width:160px;margin:0">
+          <label class="form-label">Event Type</label>
+          <select class="form-control" id="filter-type" onchange="filterTable()">
+            <option value="">All events</option>
+            <option value="identify">identify</option>
+          </select>
+        </div>
+        <div class="form-group" style="width:120px;margin:0">
+          <label class="form-label">Limit</label>
+          <select class="form-control" id="filter-limit" onchange="loadAudit()">
+            <option value="100">100</option>
+            <option value="200" selected>200</option>
+            <option value="500">500</option>
+          </select>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="loadAudit()">Apply</button>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="card">
+      <div class="card-title"><span class="icon">📋</span> Event Log</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Timestamp</th>
+              <th>Event</th>
+              <th>Identity</th>
+              <th>Confidence</th>
+              <th>Known?</th>
+              <th>Watchlist</th>
+              <th>Source</th>
+              <th>File</th>
+            </tr>
+          </thead>
+          <tbody id="audit-tbody">
+            <tr><td colspan="9" class="text-muted" style="text-align:center;padding:20px">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div id="audit-count" class="text-sm text-muted mt-3"></div>
+    </div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/audit.js"></script>
+</body>
+</html>

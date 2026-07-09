@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gallery — Face Recognition UAV System</title>
+  <meta name="description" content="Manage enrolled identities and upload face images for recognition.">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-title">Face Recognition<br>UAV System</div>
+    <div class="logo-subtitle">Drone Surveillance Pipeline</div>
+    <span class="sidebar-badge">DRDO Research</span>
+  </div>
+  <nav class="sidebar-nav">
+    <div class="nav-section">Navigation</div>
+    <a href="/"         class="nav-link"><span class="icon">⊞</span> Dashboard</a>
+    <a href="/gallery"  class="nav-link"><span class="icon">👤</span> Gallery</a>
+    <a href="/identify" class="nav-link"><span class="icon">🔍</span> Identify Face</a>
+    <a href="/demo"     class="nav-link"><span class="icon">📷</span> Live Demo</a>
+
+    <div class="nav-section" style="margin-top:12px">Analysis</div>
+    <a href="/results"   class="nav-link"><span class="icon">📊</span> Experiments &amp; Results</a>
+    <a href="/analytics" class="nav-link"><span class="icon">📈</span> Analytics</a>
+    <a href="/batch"     class="nav-link"><span class="icon">🗂️</span> Batch ID</a>
+
+    <div class="nav-section" style="margin-top:12px">Security</div>
+    <a href="/watchlist" class="nav-link"><span class="icon">🚨</span> Watchlist</a>
+    <a href="/audit"     class="nav-link"><span class="icon">📋</span> Audit Log</a>
+    <a href="/config"    class="nav-link"><span class="icon">⚙️</span> Configuration</a>
+    <a href="/docs"      class="nav-link" target="_blank"><span class="icon">📄</span> API Docs</a>
+  </nav>
+  <div class="pipeline-status">
+    <div class="status-dot loading" id="status-dot"></div>
+    <span id="status-text" style="color:var(--dim);font-size:.73rem">Connecting…</span>
+  </div>
+  <div class="sidebar-footer">HOG · LBP · Geometry · ArcFace</div>
+</aside>
+
+<div class="main">
+  <header class="topbar">
+    <div>
+      <div class="topbar-title">Gallery Management</div>
+      <div class="topbar-sub">Enroll and manage face identities</div>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn btn-primary btn-sm" onclick="document.getElementById('upload-panel').classList.toggle('hidden')">
+        + Enroll New Identity
+      </button>
+    </div>
+  </header>
+
+  <div class="content">
+    <div id="alert-zone"></div>
+
+    <!-- Upload panel -->
+    <div id="upload-panel" class="card mb-4 hidden">
+      <div class="card-title"><span class="icon">➕</span> Enroll New Identity</div>
+      <div class="grid-2">
+        <div>
+          <div class="form-group">
+            <label class="form-label">Identity Name</label>
+            <input type="text" id="identity-name" class="form-control" placeholder="e.g. Siddhant_Sharma">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Upload Face Images</label>
+            <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
+              <div class="upload-icon">📁</div>
+              <div class="upload-text">
+                <strong>Click to browse</strong> or drag & drop<br>
+                <span style="font-size:.75rem">JPG, PNG, BMP · Multiple files allowed</span>
+              </div>
+            </div>
+            <input type="file" id="file-input" multiple accept="image/*" style="display:none">
+            <div id="selected-files" class="text-sm text-muted mt-2"></div>
+          </div>
+          <button class="btn btn-primary" id="upload-btn" onclick="uploadIdentity()">
+            Upload & Enroll
+          </button>
+          <button class="btn btn-secondary" onclick="document.getElementById('upload-panel').classList.add('hidden')" style="margin-left:8px">
+            Cancel
+          </button>
+        </div>
+        <div>
+          <div class="alert alert-info">
+            <strong>Tips for good enrollment:</strong><br>
+            • Use 5–20 images per identity for best accuracy<br>
+            • Include varied lighting and slight pose variation<br>
+            • Ensure face is clearly visible (not obscured)<br>
+            • Use high-quality images where possible
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Identity grid -->
+    <div class="card">
+      <div class="card-title flex justify-between items-center">
+        <span><span class="icon">👤</span> Enrolled Identities</span>
+        <span class="badge badge-blue" id="gallery-count">0 identities</span>
+      </div>
+      <div id="identity-grid" class="identity-grid">
+        <div style="color:var(--muted);font-size:.85rem;padding:20px">Loading…</div>
+      </div>
+    </div>
+
+    <!-- Identity detail modal -->
+    <div id="identity-modal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:200;display:flex;align-items:center;justify-content:center">
+      <div style="background:var(--panel);border:1px solid var(--panel-line);position:relative;width:640px;max-width:95vw;max-height:90vh;overflow-y:auto">
+        <div style="padding:16px 20px;border-bottom:1px solid var(--panel-line);display:flex;justify-content:space-between;align-items:center">
+          <h3 id="modal-title" style="font-family:'Barlow Condensed',sans-serif;font-size:1.1rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text)"></h3>
+          <button onclick="closeModal()" style="background:none;border:none;cursor:pointer;font-size:1.1rem;color:var(--dim);transition:color .15s" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--dim)'">✕</button>
+        </div>
+        <div id="modal-images" style="padding:20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px"></div>
+        <div style="padding:14px 20px;border-top:1px solid var(--panel-line);display:flex;justify-content:flex-end;gap:8px">
+          <button class="btn btn-danger btn-sm" id="modal-delete-btn">Delete Identity</button>
+          <button class="btn btn-secondary btn-sm" onclick="closeModal()">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/gallery.js"></script>
+</body>
+</html>

@@ -1,4 +1,9 @@
 # ────────────────────────────────────────────────────────────────────────────
+# Secrets — NEVER commit these
+# ────────────────────────────────────────────────────────────────────────────
+.env
+
+# ────────────────────────────────────────────────────────────────────────────
 # Python
 # ────────────────────────────────────────────────────────────────────────────
 __pycache__/
@@ -22,11 +27,23 @@ wheels/
 *.spec
 
 # ────────────────────────────────────────────────────────────────────────────
-# Reports / Documents (excluded per user request)
+# Reports / Documents (large binary reports — not web frontend)
 # ────────────────────────────────────────────────────────────────────────────
 *.pdf
-*.html
 *.docx
+# NOTE: *.html is NOT excluded — frontend HTML files must be committed
+
+# ────────────────────────────────────────────────────────────────────────────
+# Root-level scratch/example files (not part of the project)
+# ────────────────────────────────────────────────────────────────────────────
+script.js
+styles.css
+server_example.py
+# Root-level HTML reports (not the web frontend — those live in web/frontend/)
+/Project_Report.html
+/ayam_dobhal_profile.html
+/index.html
+/index*.html
 
 # ────────────────────────────────────────────────────────────────────────────
 # Raw source videos (excluded — only demo output is included)
@@ -96,13 +113,16 @@ Thumbs.db
 *.ipynb
 
 # ────────────────────────────────────────────────────────────────────────────
-# Logs / Temp
+# Logs / Temp / Runtime data
 # ────────────────────────────────────────────────────────────────────────────
 *.log
 logs/
 *.tmp
 *.temp
 test.tmp
+audit_log.jsonl
+web/backend/watchlist.json
+web/backend/_video_output/
 
 # ────────────────────────────────────────────────────────────────────────────
 # Archives

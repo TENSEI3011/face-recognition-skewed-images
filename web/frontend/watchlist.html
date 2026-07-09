@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Watchlist & Alerts — Face Recognition UAV System</title>
+  <meta name="description" content="Manage persons of interest watchlist and view alert history.">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<!-- ── Sidebar ─────────────────────────────────────────────────────── -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-title">Face Recognition<br>UAV System</div>
+    <div class="logo-subtitle">Drone Surveillance Pipeline</div>
+    <span class="sidebar-badge">DRDO Research</span>
+  </div>
+
+  <nav class="sidebar-nav">
+    <div class="nav-section">Navigation</div>
+    <a href="/"          class="nav-link"><span class="icon">⊞</span> Dashboard</a>
+    <a href="/gallery"   class="nav-link"><span class="icon">👤</span> Gallery</a>
+    <a href="/identify"  class="nav-link"><span class="icon">🔍</span> Identify Face</a>
+    <a href="/demo"      class="nav-link"><span class="icon">📷</span> Live Demo</a>
+
+    <div class="nav-section" style="margin-top:12px">Analysis</div>
+    <a href="/results"   class="nav-link"><span class="icon">📊</span> Experiments & Results</a>
+    <a href="/analytics" class="nav-link"><span class="icon">📈</span> Analytics</a>
+    <a href="/batch"     class="nav-link"><span class="icon">🗂️</span> Batch ID</a>
+
+    <div class="nav-section" style="margin-top:12px">Security</div>
+    <a href="/watchlist" class="nav-link"><span class="icon">🚨</span> Watchlist</a>
+    <a href="/audit"     class="nav-link"><span class="icon">📋</span> Audit Log</a>
+    <a href="/config"    class="nav-link"><span class="icon">⚙️</span> Configuration</a>
+    <a href="/docs"      class="nav-link" target="_blank"><span class="icon">📄</span> API Docs</a>
+  </nav>
+
+  <div class="pipeline-status">
+    <div class="status-dot loading" id="status-dot"></div>
+    <span id="status-text" style="color:var(--dim);font-size:.73rem">Connecting…</span>
+  </div>
+  <div class="sidebar-footer">
+    HOG · LBP · Geometry · ArcFace<br>
+    MTCNN → PCA → SVM
+  </div>
+</aside>
+
+<!-- ── Main ────────────────────────────────────────────────────────── -->
+<div class="main">
+  <header class="topbar">
+    <div>
+      <div class="topbar-title">🚨 Watchlist & Alerts</div>
+      <div class="topbar-sub">Manage persons of interest — get alerted on detection</div>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn btn-secondary btn-sm" onclick="loadHits()">↻ Refresh Hits</button>
+    </div>
+  </header>
+
+  <div class="content">
+    <div id="alert-zone"></div>
+
+    <div class="grid-2 mb-4">
+      <!-- Add to watchlist -->
+      <div class="card">
+        <div class="card-title"><span class="icon">➕</span> Add to Watchlist</div>
+        <p class="text-sm text-muted mb-3">Enter the exact enrolled identity name to watch for.</p>
+        <div class="form-group">
+          <label class="form-label" for="wl-name">Identity Name</label>
+          <input class="form-control" type="text" id="wl-name" placeholder="e.g. siddhant" list="gallery-names">
+          <datalist id="gallery-names"></datalist>
+        </div>
+        <button class="btn btn-danger" id="wl-add-btn" onclick="addToWatchlist()">
+          Add to Watchlist
+        </button>
+      </div>
+
+      <!-- Current watchlist -->
+      <div class="card">
+        <div class="card-title"><span class="icon">🎯</span> Active Watchlist</div>
+        <div id="watchlist-content">
+          <p class="text-sm text-muted">Loading…</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Alert hits log -->
+    <div class="card">
+      <div class="card-title"><span class="icon">⚡</span> Recent Watchlist Hits</div>
+      <p class="text-sm text-muted mb-3">Identifications that matched a watchlisted person (last 50 events).</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Identity</th>
+              <th>Confidence</th>
+              <th>Source</th>
+              <th>File</th>
+            </tr>
+          </thead>
+          <tbody id="hits-tbody">
+            <tr><td colspan="5" class="text-muted" style="text-align:center;padding:20px">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/watchlist.js"></script>
+</body>
+</html>

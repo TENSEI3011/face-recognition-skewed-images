@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Configuration — Face Recognition UAV System</title>
+  <meta name="description" content="Configure pipeline modalities, PCA variance, SVM settings, and thresholds.">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-title">Face Recognition<br>UAV System</div>
+    <div class="logo-subtitle">Drone Surveillance Pipeline</div>
+    <span class="sidebar-badge">DRDO Research</span>
+  </div>
+  <nav class="sidebar-nav">
+    <div class="nav-section">Navigation</div>
+    <a href="/"         class="nav-link"><span class="icon">⊞</span> Dashboard</a>
+    <a href="/gallery"  class="nav-link"><span class="icon">👤</span> Gallery</a>
+    <a href="/identify" class="nav-link"><span class="icon">🔍</span> Identify Face</a>
+    <a href="/demo"     class="nav-link"><span class="icon">📷</span> Live Demo</a>
+
+    <div class="nav-section" style="margin-top:12px">Analysis</div>
+    <a href="/results"   class="nav-link"><span class="icon">📊</span> Experiments &amp; Results</a>
+    <a href="/analytics" class="nav-link"><span class="icon">📈</span> Analytics</a>
+    <a href="/batch"     class="nav-link"><span class="icon">🗂️</span> Batch ID</a>
+
+    <div class="nav-section" style="margin-top:12px">Security</div>
+    <a href="/watchlist" class="nav-link"><span class="icon">🚨</span> Watchlist</a>
+    <a href="/audit"     class="nav-link"><span class="icon">📋</span> Audit Log</a>
+    <a href="/config"    class="nav-link"><span class="icon">⚙️</span> Configuration</a>
+    <a href="/docs"      class="nav-link" target="_blank"><span class="icon">📄</span> API Docs</a>
+  </nav>
+  <div class="pipeline-status">
+    <div class="status-dot loading" id="status-dot"></div>
+    <span id="status-text" style="color:var(--dim);font-size:.73rem">Connecting…</span>
+  </div>
+  <div class="sidebar-footer">HOG · LBP · Geometry · ArcFace</div>
+</aside>
+
+<div class="main">
+  <header class="topbar">
+    <div>
+      <div class="topbar-title">Configuration</div>
+      <div class="topbar-sub">Adjust pipeline modalities and inference settings</div>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn btn-primary btn-sm" id="save-btn" onclick="saveConfig()">💾 Save Configuration</button>
+    </div>
+  </header>
+
+  <div class="content">
+    <div id="alert-zone"></div>
+
+    <div class="grid-2">
+      <!-- ── Feature Modalities ──────────────────────────────── -->
+      <div>
+        <div class="card mb-4">
+          <div class="card-title"><span class="icon">🧩</span> Feature Modalities</div>
+          <div class="alert alert-info mb-3" style="font-size:.78rem">
+            Changing modalities requires re-training the pipeline. If a trained model
+            exists, it will be loaded with its original modalities automatically.
+          </div>
+
+          <div class="toggle-row">
+            <div>
+              <div class="toggle-label">HOG — Histogram of Oriented Gradients</div>
+              <div class="toggle-sub">Edge structure · illumination-robust · fast</div>
+            </div>
+            <label class="toggle"><input type="checkbox" id="mod-hog"><span class="toggle-slider"></span></label>
+          </div>
+
+          <div class="toggle-row">
+            <div>
+              <div class="toggle-label">LBP — Local Binary Patterns</div>
+              <div class="toggle-sub">Local texture · 8×8 spatial grid · compact</div>
+            </div>
+            <label class="toggle"><input type="checkbox" id="mod-lbp"><span class="toggle-slider"></span></label>
+          </div>
+
+          <div class="toggle-row">
+            <div>
+              <div class="toggle-label">Geometry — dlib 68 Landmarks</div>
+              <div class="toggle-sub">Facial ratios · illumination-invariant · ~100MB model</div>
+            </div>
+            <label class="toggle"><input type="checkbox" id="mod-geometry"><span class="toggle-slider"></span></label>
+          </div>
+
+          <div class="toggle-row">
+            <div>
+              <div class="toggle-label">ArcFace — Deep Embedding</div>
+              <div class="toggle-sub">InsightFace buffalo_l · 512-D · pretrained MS1MV3</div>
+            </div>
+            <label class="toggle"><input type="checkbox" id="mod-arcface"><span class="toggle-slider"></span></label>
+          </div>
+        </div>
+
+        <!-- ── SVM Settings ──────────────────────────────────── -->
+        <div class="card">
+          <div class="card-title"><span class="icon">📐</span> SVM Classifier</div>
+
+          <div class="form-group">
+            <label class="form-label">Kernel</label>
+            <select id="svm-kernel" class="form-control">
+              <option value="rbf">RBF — Radial Basis Function (recommended)</option>
+              <option value="linear">Linear — faster, use for >200 components</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── PCA & Thresholds ──────────────────────────────────── -->
+      <div>
+        <div class="card mb-4">
+          <div class="card-title"><span class="icon">📉</span> PCA Dimensionality Reduction</div>
+          <div class="form-group">
+            <label class="form-label">Variance Retention: <span id="pca-val">95%</span></label>
+            <input type="range" id="pca-variance" min="70" max="99" value="95"
+              oninput="document.getElementById('pca-val').textContent = this.value + '%'">
+            <div class="text-sm text-muted mt-1">
+              Higher = more components retained = better accuracy but slower inference.
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-4">
+          <div class="card-title"><span class="icon">🎯</span> Inference Thresholds</div>
+          <div class="form-group">
+            <label class="form-label">Confidence Threshold: <span id="thresh-val">35%</span></label>
+            <input type="range" id="conf-threshold" min="10" max="90" value="35"
+              oninput="document.getElementById('thresh-val').textContent = this.value + '%'">
+            <div class="text-sm text-muted mt-1">
+              Predictions below this are labelled UNKNOWN. Lower = more lenient.
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Default Top-K Candidates</label>
+            <select id="top-k" class="form-control">
+              <option value="1">1 — Top prediction only</option>
+              <option value="3" selected>3 — Top 3 (recommended)</option>
+              <option value="5">5 — Top 5</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- ── Current config summary ───────────────────────── -->
+        <div class="card">
+          <div class="card-title"><span class="icon">📋</span> Current Configuration</div>
+          <div id="config-summary"><p class="text-sm text-muted">Loading…</p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/config.js"></script>
+</body>
+</html>

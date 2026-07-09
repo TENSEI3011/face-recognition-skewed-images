@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: face-recognition-uav
+    runtime: python
+    plan: starter          # $7/month — needed for persistent disk + always-on
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn web.backend.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/status
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: PYTHONDONTWRITEBYTECODE
+        value: "1"
+      - key: MONGO_URI
+        value: "mongodb+srv://facerecog:FACERECOG%222026@facerecognition.phw8q0k.mongodb.net/?retryWrites=true&w=majority&appName=FACERECOGNITION"
+      - key: MONGO_DB_NAME
+        value: "facerecog_db"
+    disk:
+      name: models-and-gallery
+      mountPath: /app/data
+      sizeGB: 5             # Stores gallery images + trained models
