@@ -19,7 +19,6 @@ joblib>=1.3.0
 
 # Face Recognition models
 dlib-bin>=19.24.0
-mtcnn>=0.1.1
 insightface>=0.7.3
 onnxruntime>=1.16.0
 
