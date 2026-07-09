@@ -77,8 +77,8 @@ class FaceDetector:
         try:
             from insightface.app import FaceAnalysis
             self._app = FaceAnalysis(
-                name="buffalo_l",
-                allowed_modules=["detection"],   # detection only — skip ArcFace
+                name="buffalo_l",            # Highest accuracy (det_10g.onnx, 16MB detector)
+                allowed_modules=["detection"],   # detection only — ArcFace loaded separately
                 providers=["CPUExecutionProvider"],
             )
             self._app.prepare(ctx_id=-1, det_size=(640, 640))

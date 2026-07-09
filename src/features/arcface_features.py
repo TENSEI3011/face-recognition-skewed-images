@@ -78,21 +78,22 @@ class ArcFaceExtractor:
     ):
         self.model_name = model_name
         self.ctx_id     = ctx_id
-        self._app       = None  # InsightFace FaceAnalysis app (lazy-loaded in __init__)
+        self._app       = None
 
         if not INSIGHTFACE_AVAILABLE:
             print("[ArcFaceExtractor] InsightFace unavailable. Returning zero embeddings.")
             return
 
         try:
-            # allowed_modules: only load detection + recognition models.
-            # Excludes age/gender estimation modules — saves memory and load time.
+            # allowed_modules: only load detection + recognition.
+            # Excludes age/gender estimation — saves memory and load time.
             self._app = FaceAnalysis(
                 name=model_name,
                 allowed_modules=["detection", "recognition"],
+                providers=["CPUExecutionProvider"],
             )
-            # prepare() downloads model weights on first run (~300MB)
-            self._app.prepare(ctx_id=ctx_id, det_size=det_size)
+            # ctx_id=-1 forces CPU (no GPU on HuggingFace free tier)
+            self._app.prepare(ctx_id=-1, det_size=det_size)
             print(f"[ArcFaceExtractor] Loaded model: {model_name}")
         except Exception as e:
             print(f"[ArcFaceExtractor] Failed to load model: {e}")
