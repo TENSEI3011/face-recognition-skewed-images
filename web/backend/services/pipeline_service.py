@@ -45,6 +45,11 @@ _status = {
     "modalities": DEFAULT_MODALITIES.copy(),
 }
 
+# Per-class ArcFace embeddings stored at retrain time.
+# Key: identity string, Value: list of L2-normalized 512-dim numpy arrays.
+# Same extraction path as inference -> reliable for cosine rejection.
+_gallery_arc_features: dict = {}
+
 
 def get_pipeline() -> Optional[FaceRecognitionPipeline]:
     """Return the loaded pipeline, or None if not yet loaded."""
@@ -57,6 +62,17 @@ def get_status() -> dict:
 
 def get_config() -> dict:
     return _current_config.copy()
+
+
+def set_gallery_arc_features(features: dict) -> None:
+    """Store per-class ArcFace embeddings after retrain for cosine rejection."""
+    global _gallery_arc_features
+    _gallery_arc_features = features
+
+
+def get_gallery_arc_features() -> dict:
+    """Return stored per-class ArcFace embeddings (empty dict if not yet set)."""
+    return _gallery_arc_features
 
 
 def update_config(new_config: dict) -> dict:

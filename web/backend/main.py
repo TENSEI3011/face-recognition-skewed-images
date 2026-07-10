@@ -1,5 +1,5 @@
 """
-main.py — FastAPI application entrypoint
+main.py - FastAPI application entrypoint
 
 Starts up the pipeline on server boot, registers all routers,
 and serves the frontend HTML/CSS/JS as static files.
@@ -7,6 +7,12 @@ and serves the frontend HTML/CSS/JS as static files.
 
 import sys
 from pathlib import Path
+
+# Fix Windows console encoding (cp1252 can't handle Unicode arrows/symbols
+# used in docstrings/comments across the codebase). Must be set before any
+# other imports that might trigger print() calls.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 # Ensure project root is on path
 ROOT = Path(__file__).resolve().parents[2]

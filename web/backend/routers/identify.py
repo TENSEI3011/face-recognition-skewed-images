@@ -28,6 +28,28 @@ router = APIRouter(prefix="/api/identify", tags=["identify"])
 
 
 def _decode_image(data: bytes) -> np.ndarray:
+    """Decode image bytes to BGR numpy array with EXIF rotation correction.
+
+    Phone cameras (iOS/Android) store a rotation tag in EXIF metadata.
+    OpenCV/cv2.imdecode ignores this tag, so selfies appear rotated.
+    Pillow reads the EXIF tag and applies the correct rotation first.
+    """
+    # Try Pillow first for EXIF-aware decoding
+    try:
+        from PIL import Image, ImageOps
+        import io
+        pil_img = Image.open(io.BytesIO(data))
+        # Apply EXIF orientation (rotates to correct upright orientation)
+        pil_img = ImageOps.exif_transpose(pil_img)
+        # Convert to RGB then BGR for OpenCV
+        pil_img = pil_img.convert("RGB")
+        img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+        if img is not None and img.size > 0:
+            return img
+    except Exception:
+        pass  # Fall back to raw OpenCV decode
+
+    # Fallback: plain OpenCV decode (no EXIF rotation)
     arr = np.frombuffer(data, dtype=np.uint8)
     img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
     if img is None:
@@ -95,7 +117,7 @@ def _image_to_b64(image: np.ndarray) -> str:
 async def identify_face(
     file:        UploadFile = File(...),
     top_k:       int        = Form(DEFAULT_TOP_K),
-    threshold:   float      = Form(0.35),
+    threshold:   float      = Form(0.65),
     degradation: str        = Form("CLEAN"),
     use_sr:      bool       = Form(False),
 ):
@@ -148,20 +170,69 @@ async def identify_face(
 
     labels, confs = result
 
-    # Draw annotations
-    annotated = _draw_result(image_deg, detection, labels, confs, threshold)
+    svm_conf  = float(confs[0]) if confs else 0.0
+    svm_label = labels[0] if labels else "UNKNOWN"
 
+    # Cosine similarity rejection using in-memory gallery embeddings.
+    # These were stored at retrain time using the SAME ArcFace extraction
+    # as inference, so they are directly comparable.
+    is_known  = False
+    top_label = "UNKNOWN"
+    top_conf  = svm_conf
+    COSINE_THRESHOLD = 0.30  # Min cosine similarity to call someone "known"
+
+    gallery_arc = pipeline_service.get_gallery_arc_features()
+    if gallery_arc:
+        try:
+            import numpy as _np
+            # Extract ArcFace embedding from the aligned face (same path as retrain)
+            detection_inner = pipe.detector.detect_largest(image_deg)
+            if detection_inner is not None:
+                aligned_q = pipe.aligner.align_from_detection(image_deg, detection_inner)
+                if aligned_q is not None:
+                    q_feat = pipe.arc_ext.extract(aligned_q)
+                    q_norm = _np.linalg.norm(q_feat)
+                    if q_norm > 1e-6:
+                        q_feat = q_feat / q_norm
+                        # Find best matching identity via cosine similarity
+                        best_sim  = -1.0
+                        best_iden = "UNKNOWN"
+                        for identity, feats in gallery_arc.items():
+                            mat = _np.array(feats)          # (n, 512)
+                            sims = mat @ q_feat             # cosine similarities
+                            sim  = float(_np.max(sims))
+                            if sim > best_sim:
+                                best_sim  = sim
+                                best_iden = identity
+                        if best_sim >= COSINE_THRESHOLD:
+                            is_known  = True
+                            top_label = best_iden
+                            top_conf  = round(best_sim, 4)
+        except Exception:
+            # Cosine gate failed - fall back to SVM threshold
+            is_known  = svm_conf >= threshold
+            top_label = svm_label if is_known else "UNKNOWN"
+            top_conf  = svm_conf
+    else:
+        # Gallery not yet in memory (retrain not run yet) - use SVM only
+        is_known  = svm_conf >= threshold
+        top_label = svm_label if is_known else "UNKNOWN"
+        top_conf  = svm_conf
+
+    # Build ranked candidates list
     candidates = [
         {"rank": i + 1, "identity": lbl, "confidence": round(float(conf), 4)}
         for i, (lbl, conf) in enumerate(zip(labels, confs))
     ]
 
-    top_conf  = float(confs[0]) if confs else 0.0
-    top_label = labels[0] if top_conf >= threshold else "UNKNOWN"
-    is_known  = top_conf >= threshold
+    # Draw bounding box and label on the image
+    annotated = _draw_result(image_deg, detection, [top_label], [top_conf], threshold)
+
+
 
     # Watchlist check
     watchlist_hit = is_watchlisted(top_label) and is_known
+
 
     # Audit log
     log_event("identify", {

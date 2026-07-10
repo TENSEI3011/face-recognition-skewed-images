@@ -86,9 +86,29 @@ class SVMClassifier:
         self.use_grid_search = use_grid_search
         self.probability     = probability
 
-        self._label_encoder = LabelEncoder()  # Maps string labels ↔ integers
+        self._label_encoder = LabelEncoder()  # Maps string labels to integers
         self._svm           = None
         self._is_fitted     = False
+
+    def __getattr__(self, name):
+        """
+        Fallback for attributes missing on classifiers loaded from old pkl files.
+        Python calls __getattr__ ONLY when normal lookup fails (i.e. attribute missing).
+        This handles backward compatibility without requiring pkl re-saving.
+        """
+        defaults = {
+            "use_grid_search": False,
+            "kernel":          "rbf",
+            "C":               10.0,
+            "gamma":           "scale",
+            "probability":     True,
+        }
+        if name in defaults:
+            # Cache it on the instance so it is found next time via __dict__
+            object.__setattr__(self, name, defaults[name])
+            return defaults[name]
+        raise AttributeError(f"'SVMClassifier' object has no attribute '{name}'")
+
 
     def fit(
         self,
@@ -244,8 +264,16 @@ class SVMClassifier:
         obj._svm           = data["svm"]
         obj._label_encoder = data["encoder"]
         obj._is_fitted     = True
+        # Set safe defaults for all constructor attributes not stored in pkl.
+        # Required so fit() works correctly if retrain is called after loading.
+        obj.kernel          = "rbf"
+        obj.C               = 10.0
+        obj.gamma           = "scale"
+        obj.use_grid_search = False
+        obj.probability     = True
         print(f"[SVMClassifier] Loaded from {path} ({len(obj._label_encoder.classes_)} identities)")
         return obj
+
 
     def _check_fitted(self):
         """Raise a clear error if predict is called before fit."""

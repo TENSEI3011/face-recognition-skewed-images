@@ -81,7 +81,7 @@ class FaceRecognitionPipeline:
         # min_face_size=20: catch UAV faces as small as 20px (30m altitude)
         # confidence_threshold=0.85: balance between catching real faces
         #                            and filtering false positives
-        self.detector = FaceDetector(min_face_size=20, confidence_threshold=0.85)
+        self.detector = FaceDetector(min_face_size=20, confidence_threshold=0.5)
         self.aligner  = FaceAligner()
 
         # ── Feature Extractors (only instantiated if modality is requested) ───
