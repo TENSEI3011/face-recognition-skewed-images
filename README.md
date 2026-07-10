@@ -1,3 +1,13 @@
+---
+title: Face Recognition UAV System
+emoji: 🎭
+colorFrom: indigo
+colorTo: blue
+sdk: docker
+pinned: true
+app_port: 7860
+---
+
 # Face Recognition using Skewed UAV Images
 
 A hybrid face recognition system designed for **drone-based surveillance**, where faces are captured at oblique angles, varying altitudes, low resolution, and under motion blur.
