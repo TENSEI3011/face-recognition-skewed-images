@@ -8,150 +8,270 @@ pinned: true
 app_port: 7860
 ---
 
-# Face Recognition using Skewed UAV Images
+# Face Recognition on Skewed UAV Images
 
-A hybrid face recognition system designed for **drone-based surveillance**, where faces are captured at oblique angles, varying altitudes, low resolution, and under motion blur.
+A **multi-modal face recognition system** designed for drone-based surveillance, where faces are captured at oblique angles, varying altitudes, low resolution, and under motion blur. Built with a modern web interface for real-time identification, gallery management, video processing, and experiment analysis.
+
+[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.104-green.svg)](https://fastapi.tiangolo.com)
+[![InsightFace](https://img.shields.io/badge/InsightFace-buffalo__l-orange.svg)](https://github.com/deepinsight/insightface)
+
+---
 
 ## Pipeline
 
 ```
-UAV Image
-    ↓
-MTCNN Face Detection
-    ↓
-Geometric Alignment → 112×112
-    ↓        ↓         ↓         ↓
-  HOG      LBP    Geometry   ArcFace
-    ↓        ↓         ↓         ↓
-         L2-Normalize + Concatenate
-                    ↓
-              PCA Reduction
-                    ↓
-               SVM Classifier
-                    ↓
-           Identity Prediction
+UAV Image / Video Frame
+        ↓
+SCRFD Face Detection (det_10g.onnx)     ← full-res, auto-upscale for tiny faces
+        ↓
+dlib + InsightFace 5-pt Alignment → 112×112
+        ↓          ↓           ↓           ↓
+      HOG         LBP      Geometry    ArcFace (512-D)
+        ↓          ↓           ↓           ↓
+              L2-Normalize + Concatenate
+                          ↓
+                    PCA (95% variance)
+                          ↓
+               SVM Classifier (RBF, Platt-calibrated)
+                          ↓
+          FAISS Open-Set Cosine Matcher  ← primary identification
+                          ↓
+              Identity / UNKNOWN
 ```
 
-## Features
+---
 
-- **HOG** — Histogram of Oriented Gradients (edge structure, illumination-robust)
-- **LBP** — Local Binary Patterns (local texture, 8×8 spatial grid)
-- **Facial Geometry** — dlib 68-point landmark ratios (illumination-invariant)
-- **ArcFace** — InsightFace deep embedding, 512-D (pretrained on MS1MV3)
-- **PCA** — Dimensionality reduction with 95% variance retention
-- **SVM** — RBF kernel classifier with Platt probability calibration
+## Key Features
+
+| Component | Details |
+|---|---|
+| **Face Detector** | SCRFD `det_10g.onnx` via InsightFace `buffalo_l` — full-resolution input, auto-upscales small frames |
+| **Deep Embedding** | ArcFace ResNet-50 (`w600k_r50.onnx`) — 512-D cosine embedding |
+| **HOG** | Histogram of Oriented Gradients — edge/gradient structure, illumination-robust |
+| **LBP** | Local Binary Patterns — local texture, rotation and illumination invariant |
+| **Geometry** | dlib 68-landmark inter-distance ratios — pose-stable structural descriptor |
+| **PCA** | Dimensionality reduction with 95% variance retention |
+| **SVM** | RBF kernel with Platt probability calibration — closed-set classification |
+| **FAISS** | `IndexFlatIP` cosine similarity — open-set identification with UNKNOWN rejection |
+| **Temporal Voter** | 10-frame rolling majority vote for stable video identification |
+| **Web Interface** | FastAPI + vanilla JS dashboard with gallery, identification, video, experiments |
+
+---
+
+## Recent Updates
+
+- **Full-resolution video detection** — SCRFD now receives frames at full resolution (`max_side=0`) so 17–30px faces at UAV altitude are not lost on the internal 640×640 detection grid
+- **Tiny face upscaling** — faces smaller than 48px are bicubically upscaled before ArcFace alignment for better embedding quality
+- **FAISS open-set matching** — replaced SVM-only identification with FAISS cosine search + threshold; `FAISS_THRESHOLD = 0.35` tuned for compressed UAV footage
+- **Ranked candidates fix** — both the main identity label and the ranked candidates list now use FAISS as the single source of truth (previously the list used a stale SVM which disagreed with the header)
+- **PENDING → UNKNOWN** — unrecognised faces in video now correctly show `UNKNOWN` instead of the internal `PENDING` state
+- **Temporal voter** — 5/10 frame majority required before confirming identity (faster than previous 8/15)
+- **Duplicate experiment graphs fixed** — `results.py` now deduplicates timestamped PNGs by plot type, showing only the latest CMC, ROC, confusion matrix, etc.
+- **bcrypt authentication** — passwords now hashed with salted bcrypt (replaces raw SHA-256)
+- **Quality gates lowered** — `MIN_BLUR_SCORE 12.0 → 5.0`, `MIN_FACE_AREA_PX 200 → 100` for compressed video frames
+
+---
 
 ## Project Structure
 
 ```
+face-recognition-skewed-images/
 ├── src/
-│   ├── detection.py              ← MTCNN face detector
-│   ├── alignment.py              ← Eye-corner alignment to 112×112
-│   ├── augmentation.py           ← UAV degradation simulation (7 profiles)
-│   ├── fusion.py                 ← L2 normalize + concatenate
-│   ├── reducer.py                ← PCA with StandardScaler
-│   ├── classifier.py             ← SVM (RBF, Platt-calibrated, GridSearchCV)
+│   ├── detection.py              ← SCRFD face detector (auto-upscales small images)
+│   ├── matcher.py                ← FAISS open-set cosine matcher (NEW)
+│   ├── classifier.py             ← SVM (RBF, Platt-calibrated, handles 1-2 image galleries)
 │   ├── pipeline.py               ← End-to-end orchestrator
+│   ├── alignment.py              ← 5-point similarity transform to 112×112
+│   ├── augmentation.py           ← UAV degradation simulation (7 profiles)
+│   ├── fusion.py                 ← L2 normalize + concatenate features
+│   ├── reducer.py                ← PCA with StandardScaler
 │   └── features/
 │       ├── hog_features.py
 │       ├── lbp_features.py
 │       ├── geometry_features.py
 │       └── arcface_features.py
-├── evaluation/
-│   ├── metrics.py                ← Rank-k, EER, TAR@FAR, ROC, AUC, d-prime
-│   └── visualizer.py             ← Publication-quality plots (dark theme)
+├── web/
+│   ├── backend/
+│   │   ├── main.py               ← FastAPI app entry point
+│   │   ├── config.py             ← Paths + thresholds (FAISS_THRESHOLD=0.35)
+│   │   ├── routers/
+│   │   │   ├── identify.py       ← /api/identify (FAISS + SVM, ranked candidates)
+│   │   │   ├── gallery.py        ← /api/gallery  (enroll, retrain, delete)
+│   │   │   ├── video_demo.py     ← /api/video + WebSocket live stream
+│   │   │   ├── results.py        ← /api/results  (deduplicated experiment plots)
+│   │   │   ├── experiments.py    ← /api/experiments/run/{exp}
+│   │   │   ├── auth.py           ← JWT + bcrypt authentication
+│   │   │   ├── retrain.py        ← /api/retrain (background job)
+│   │   │   ├── batch.py          ← /api/batch
+│   │   │   ├── analytics.py      ← /api/analytics
+│   │   │   ├── watchlist.py      ← /api/watchlist
+│   │   │   └── audit.py          ← /api/audit
+│   │   └── services/
+│   │       ├── pipeline_service.py  ← Singleton pipeline + FAISS loader
+│   │       ├── temporal_service.py  ← TemporalVoter (10-frame rolling window)
+│   │       ├── enhance_service.py   ← Image enhancement / quality service
+│   │       ├── auth_service.py      ← bcrypt user management
+│   │       └── job_manager.py       ← Background experiment jobs
+│   └── frontend/
+│       ├── index.html / identify.html / gallery.html / ...
+│       ├── css/style.css / tour.css
+│       └── js/api.js / identify.js / gallery.js / results.js / demo.js / tour.js
 ├── experiments/
-│   ├── run_baseline.py           ← Full pipeline experiment
-│   ├── run_ablation.py           ← 10-combination ablation study
-│   ├── run_pose_study.py         ← Pose / altitude stratified evaluation
-│   └── run_degradation.py        ← Degradation sweep (7 profiles + altitude)
+│   ├── run_baseline.py           ← Full pipeline evaluation (CMC, ROC, EER, AUC, d')
+│   ├── run_ablation.py           ← 10-modality combination ablation study
+│   ├── run_pose_study.py         ← Pose/altitude stratified evaluation
+│   └── run_degradation.py        ← Degradation sweep (CLEAN → EXTREME)
+├── evaluation/
+│   ├── metrics.py                ← Rank-k, EER, TAR@FAR, AUC, d-prime
+│   └── visualizer.py             ← Publication-quality plots
 ├── data/
-│   ├── gallery/                  ← Enrollment images (per-identity folders)
-│   └── probe/                    ← Test/query images (per-identity folders)
-├── models/                       ← Saved PCA + SVM + dlib models
-├── results/                      ← Experiment outputs (plots, JSON)
-├── download_lfw.py               ← LFW dataset downloader & organizer
-├── setup.py                      ← Project setup + dlib model download
+│   ├── gallery/                  ← Enrollment images (one subfolder per identity)
+│   └── probe/                    ← Test/query images
+├── models/                       ← dlib landmark model (not in repo — download below)
+├── results/                      ← Experiment outputs (plots + JSON metrics)
+├── extract_gallery_frames.py     ← Utility to extract face crops from a video for enrollment
+├── setup.py                      ← Auto-downloads dlib model
 └── requirements.txt
 ```
 
-## Setup
+---
 
-### 1. Install Dependencies
+## Quick Start
+
+### 1. Clone the Repository
 ```bash
+git clone https://github.com/TENSEI3011/face-recognition-skewed-images.git
+cd face-recognition-skewed-images
+```
+
+### 2. Create Virtual Environment
+```bash
+python -m venv venv
+
+# Windows
+venv\Scripts\activate
+
+# Linux / macOS
+source venv/bin/activate
+```
+
+> **Python 3.10 or 3.11 required.** Python 3.13 breaks `dlib-bin`.
+
+### 3. Install Dependencies
+```bash
+pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 2. Download Required Models
-
-> **The models directory is not included in this repo (too large). Download manually:**
-
-#### dlib 68-Point Facial Landmark Model (~100 MB)
-Used by the Geometry feature extractor to detect facial landmarks.
-
-| Method | Link |
-|--------|------|
-| **Direct download** | [shape_predictor_68_face_landmarks.dat.bz2](http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2) |
-| **Mirror (GitHub)** | [davisking/dlib-models](https://github.com/davisking/dlib-models/raw/master/shape_predictor_68_face_landmarks.dat.bz2) |
-
-After downloading, extract and place it at:
-```
-models/shape_predictor_68_face_landmarks.dat
+If `dlib-bin` fails on Windows:
+```bash
+pip install cmake && pip install dlib
+pip install -r requirements.txt
 ```
 
-Or just run the auto-downloader:
+### 4. Download Required Models
+
+#### dlib 68-Point Landmark Model (~100 MB)
 ```bash
 python setup.py
 ```
+Or download manually from http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2
+and extract to `models/shape_predictor_68_face_landmarks.dat`
 
-#### InsightFace ArcFace Model — buffalo_l (~300 MB)
-Downloaded **automatically** on first run by InsightFace. No manual steps needed.
+#### InsightFace ArcFace Models — buffalo_l (~500 MB)
+Downloaded **automatically** on first run by InsightFace to `~/.insightface/models/buffalo_l/`.
+
+> **Tip:** If copying to a machine without internet, copy the `buffalo_l` folder manually to `C:\Users\<name>\.insightface\models\buffalo_l\` on Windows or `~/.insightface/models/buffalo_l/` on Linux.
+
+### 5. Configure Environment
 ```bash
-# First run will download buffalo_l to ~/.insightface/models/buffalo_l/
-python -c "from src.features.arcface_features import ArcFaceExtractor; ArcFaceExtractor()"
+copy .env.example .env      # Windows
+cp .env.example .env        # Linux / macOS
 ```
 
-### 3. Run Setup (auto-downloads dlib model if missing)
+Edit `.env`:
+```env
+JWT_SECRET_KEY=your-random-secret-key-here
+MONGO_URI=mongodb+srv://user:password@cluster.mongodb.net/   # optional
+MONGO_DB_NAME=facerecog_db
+ENV=development
+```
+
+> MongoDB is **optional** — if `MONGO_URI` is not set, the system uses local file storage.
+
+### 6. Add Gallery Images
+
+```
+data/gallery/
+    person_a/
+        photo1.jpg
+        photo2.jpg
+    person_b/
+        photo1.jpg
+```
+
+Or use the web gallery page to upload via the browser UI.
+
+### 7. Run the Web Interface
 ```bash
-python setup.py
+python -m uvicorn web.backend.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### 3. Download a Dataset
+Open **http://localhost:8000** in your browser.
 
-**Option A — LFW (quickest start):**
+---
+
+## Web Interface Pages
+
+| URL | Description |
+|---|---|
+| `http://localhost:8000/` | Dashboard — system status, metrics overview |
+| `http://localhost:8000/identify` | Upload image → get face identified with ranked candidates |
+| `http://localhost:8000/gallery` | Enroll identities, view gallery, trigger retrain |
+| `http://localhost:8000/demo` | Live webcam stream + video file upload processing |
+| `http://localhost:8000/results` | Experiment plots (CMC, ROC, confusion matrix) |
+| `http://localhost:8000/config` | Adjust FAISS threshold, blur gates, pipeline settings |
+| `http://localhost:8000/analytics` | System usage analytics |
+| `http://localhost:8000/audit` | Audit log of all identification events |
+| `http://localhost:8000/watchlist` | Alert watchlist management |
+| `http://localhost:8000/docs` | FastAPI auto-generated REST API docs |
+
+---
+
+## Run Experiments
 ```bash
-# Download lfw.tgz from http://vis-www.cs.umass.edu/lfw/
-# Place it in data/datasets/lfw.tgz, then:
-python download_lfw.py
-```
-
-**Option B — Manual:**
-```
-data/gallery/<identity_name>/*.jpg   ← enrollment images
-data/probe/<identity_name>/*.jpg     ← query images
-```
-
-### 4. Run Experiments
-```bash
-# Full pipeline baseline
+# Full pipeline baseline (CMC, ROC, EER, TAR@FAR, AUC, d-prime)
 python experiments/run_baseline.py
 
-# Ablation study (HOG vs LBP vs ArcFace vs all combinations)
+# Ablation study — all 10 modality combinations
 python experiments/run_ablation.py
 
-# Pose-stratified evaluation (per yaw/pitch/altitude bin)
+# Pose-stratified evaluation (yaw / pitch / altitude bins)
 python experiments/run_pose_study.py
 
-# Degradation sweep (clean → extreme, altitude 5m → 30m)
+# Degradation sweep (CLEAN → EXTREME, altitude 5m → 30m)
 python experiments/run_degradation.py
 ```
 
+Results (plots + JSON) are saved to `results/<experiment_name>/`.
+View them at **http://localhost:8000/results**.
+
+---
+
+## Enroll a New Person from Video
+```bash
+python extract_gallery_frames.py --video "person.mp4" --name "person_name" --count 20
+```
+This extracts 20 high-quality face crops and saves them to `data/gallery/person_name/`.
+Then go to the web gallery to trigger a retrain.
+
+---
+
 ## UAV Degradation Profiles
 
-The `UAVAugmentor` in `src/augmentation.py` simulates real drone imaging conditions:
-
 | Profile | Simulates | Blur | Noise | JPEG |
-|---------|-----------|------|-------|------|
+|---|---|---|---|---|
 | `CLEAN` | Stable hover, 5m | None | None | None |
 | `MILD` | 5–10m altitude | Low | Low | Low |
 | `MODERATE` | 10–20m altitude | Medium | Medium | Medium |
@@ -160,53 +280,69 @@ The `UAVAugmentor` in `src/augmentation.py` simulates real drone imaging conditi
 | `MOTION` | Moving drone | Directional | Low | — |
 | `COMBINED` | Worst case | Mixed | High | High |
 
+---
+
 ## Evaluation Metrics
 
 | Metric | Description |
-|--------|-------------|
-| **Rank-1 IR** | Top-1 identification accuracy (CMC) |
+|---|---|
+| **Rank-1 IR** | Top-1 identification accuracy (CMC curve) |
 | **Rank-5 IR** | Top-5 identification accuracy |
-| **EER** | Equal Error Rate (FAR = FRR) |
-| **TAR @ FAR=0.1%** | True Accept Rate at 0.1% False Accepts (NIST) |
+| **EER** | Equal Error Rate — threshold where FAR = FRR |
+| **TAR @ FAR=0.1%** | True Accept Rate at 0.1% False Accept Rate |
 | **AUC** | Area under ROC Curve |
 | **d' (d-prime)** | Signal detection discriminability index |
 
-## Ablation Study
+---
 
-Runs all 10 modality combinations automatically:
+## Open-Set Configuration
 
-| Configuration | Description |
+The FAISS cosine threshold controls the boundary between known and unknown identities:
+
+```python
+# web/backend/config.py
+FAISS_THRESHOLD = 0.35   # tuned for compressed UAV footage (default was 0.45)
+```
+
+| Threshold | Effect |
 |---|---|
-| HOG only | Gradient-based baseline |
-| LBP only | Texture-based baseline |
-| Geometry only | Landmark ratio baseline |
-| ArcFace only | Deep embedding baseline |
-| HOG + LBP | Classical fusion |
-| HOG + ArcFace | Gradient + deep |
-| LBP + ArcFace | Texture + deep |
-| HOG + LBP + Geometry | Full classical |
-| HOG + LBP + ArcFace | Classical + deep (no geometry) |
-| **All (Full Pipeline)** | **Best expected performance** |
+| Higher (0.55+) | Fewer false accepts, more UNKNOWN results |
+| Lower (0.25–0.35) | More accepts, better for degraded/compressed video |
+| Default (0.35) | Tuned for 1080p UAV video at 20–30m altitude |
 
-## Recommended Datasets
+---
 
-| Dataset | Purpose | Link |
-|---------|---------|------|
-| LFW | Ground-level baseline | [vis-www.cs.umass.edu/lfw](http://vis-www.cs.umass.edu/lfw/) |
-| CFP | Frontal vs. profile (pose study) | [cfpw.io](http://www.cfpw.io/) |
-| DroneSURF | UAV-specific (primary) | [iab-rubric.org](https://iab-rubric.org/resources/dronesurf) |
-| UAV-Human | Multi-altitude UAV | [GitHub](https://github.com/SUTDCV/UAV-Human) |
-| SCface | Low-res surveillance proxy | [scface.org](http://www.scface.org/) |
-| TinyFace | Extreme low-resolution | [cs.cmu.edu](https://cs.cmu.edu/~peiyunh/tiny/) |
+## Requirements
+
+```
+Python         3.10 or 3.11
+fastapi        >=0.104
+uvicorn        >=0.24
+insightface    >=0.7.3     (SCRFD + ArcFace)
+onnxruntime    >=1.16
+dlib-bin       >=19.24
+faiss-cpu      >=1.7.4     (open-set FAISS matching)
+opencv-python-headless >=4.8
+scikit-learn   >=1.3
+passlib[bcrypt] >=1.7.4   (secure password hashing)
+pymongo        >=4.6       (optional — MongoDB integration)
+```
+
+---
 
 ## References
 
-1. Dalal & Triggs (2005). *Histograms of Oriented Gradients for Human Detection.* CVPR.
-2. Ahonen et al. (2006). *Face Description with Local Binary Patterns.* IEEE TPAMI.
-3. Deng et al. (2019). *ArcFace: Additive Angular Margin Loss for Deep Face Recognition.* CVPR.
-4. Zhang et al. (2016). *Joint Face Detection and Alignment Using MTCNN.* IEEE SPL.
-5. King (2009). *dlib-ml: A Machine Learning Toolkit.* JMLR.
-6. Turk & Pentland (1991). *Eigenfaces for Recognition.* J. Cognitive Neuroscience.
+1. Guo et al. (2021). *Sample and Computation Redistribution for Efficient Face Detection.* ICLR 2022. (SCRFD)
+2. Deng et al. (2019). *ArcFace: Additive Angular Margin Loss for Deep Face Recognition.* CVPR.
+3. Johnson et al. (2019). *Billion-scale Similarity Search with GPUs.* IEEE Trans. Big Data. (FAISS)
+4. Dalal & Triggs (2005). *Histograms of Oriented Gradients for Human Detection.* CVPR.
+5. Ahonen et al. (2006). *Face Description with Local Binary Patterns.* IEEE TPAMI.
+6. Kazemi & Sullivan (2014). *One Millisecond Face Alignment with an Ensemble of Regression Trees.* CVPR.
+7. Cortes & Vapnik (1995). *Support-Vector Networks.* Machine Learning.
+8. Bendale & Boult (2015). *Towards Open Set Deep Networks.* CVPR.
+9. Turk & Pentland (1991). *Eigenfaces for Recognition.* J. Cognitive Neuroscience.
+
+---
 
 ## License
 
