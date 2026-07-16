@@ -23,7 +23,12 @@ FRONTEND_DIR     = Path(__file__).resolve().parents[1] / "frontend"
 DEFAULT_MODALITIES   = ["hog", "lbp", "geometry", "arcface"]
 DEFAULT_PCA_VARIANCE = 0.95
 DEFAULT_SVM_KERNEL   = "rbf"
-DEFAULT_THRESHOLD    = 0.35
+DEFAULT_THRESHOLD    = 0.45   # Cosine similarity gate for SVM fallback path
+FAISS_THRESHOLD      = 0.35   # FAISS cosine threshold lowered for small-face video:
+                               #   Gallery photos are close-up; video faces are tiny (20-30px).
+                               #   Tiny faces produce degraded ArcFace embeddings that score
+                               #   0.30-0.45 even for the correct identity. Use 0.35 as gate.
+                               #   Raise back to 0.45 if you get too many false positives.
 DEFAULT_TOP_K        = 3
 
 # ── MongoDB Atlas ──────────────────────────────────────────────────────────────

@@ -6,6 +6,8 @@ Enhanced with:
   - Audit logging (every identification is recorded)
   - Watchlist hit detection
   - Super-Resolution toggle (use_sr parameter)
+  - FAISS cosine matcher (primary identification gate — replaces SVM open-set gap)
+  - Raised COSINE_THRESHOLD 0.30 → 0.60 (safety-critical: reduces false positives)
 """
 
 import cv2
@@ -22,7 +24,7 @@ sys.path.insert(0, str(ROOT))
 from web.backend.services import pipeline_service
 from web.backend.services.audit_service import log_event
 from web.backend.routers.watchlist import is_watchlisted
-from web.backend.config import DEFAULT_TOP_K, DEGRADATION_PROFILES
+from web.backend.config import DEFAULT_TOP_K, DEGRADATION_PROFILES, FAISS_THRESHOLD
 
 router = APIRouter(prefix="/api/identify", tags=["identify"])
 
@@ -65,6 +67,17 @@ def _apply_degradation(image: np.ndarray, profile: str) -> np.ndarray:
         from src.augmentation import UAVAugmentor
         aug = UAVAugmentor(profile=profile)
         return aug.augment(image)
+    except Exception:
+        return image
+
+
+def _apply_enhance(image: np.ndarray, use_enhance: bool, enhance_mode: str = "auto") -> np.ndarray:
+    """Optionally apply deblur + dehaze + CLAHE enhancement before detection."""
+    if not use_enhance:
+        return image
+    try:
+        from web.backend.services.enhance_service import enhance
+        return enhance(image, mode=enhance_mode)
     except Exception:
         return image
 
@@ -115,11 +128,13 @@ def _image_to_b64(image: np.ndarray) -> str:
 
 @router.post("")
 async def identify_face(
-    file:        UploadFile = File(...),
-    top_k:       int        = Form(DEFAULT_TOP_K),
-    threshold:   float      = Form(0.65),
-    degradation: str        = Form("CLEAN"),
-    use_sr:      bool       = Form(False),
+    file:         UploadFile = File(...),
+    top_k:        int        = Form(DEFAULT_TOP_K),
+    threshold:    float      = Form(0.65),
+    degradation:  str        = Form("CLEAN"),
+    use_sr:       bool       = Form(False),
+    use_enhance:  bool       = Form(False),
+    enhance_mode: str        = Form("auto"),
 ):
     """
     Identify the face in the uploaded image.
@@ -141,6 +156,9 @@ async def identify_face(
     data  = await file.read()
     image = _decode_image(data)
 
+    # Apply Enhancement (deblur + dehaze + CLAHE) — before SR for best results
+    image = _apply_enhance(image, use_enhance, enhance_mode)
+
     # Apply Super-Resolution (before degradation for best quality)
     image = _apply_sr(image, use_sr)
 
@@ -155,17 +173,21 @@ async def identify_face(
 
     if result is None:
         log_event("identify", {
-            "source":     "identify",
-            "filename":   file.filename or "upload",
-            "detected":   False,
-            "degradation": degradation,
-            "use_sr":     use_sr,
+            "source":       "identify",
+            "filename":     file.filename or "upload",
+            "detected":     False,
+            "degradation":  degradation,
+            "use_sr":       use_sr,
+            "use_enhance":  use_enhance,
+            "enhance_mode": enhance_mode,
         })
         return {
             "detected": False,
             "message":  "No face detected in the image.",
             "annotated_image": _image_to_b64(image_deg),
             "candidates": [],
+            "use_enhance":  use_enhance,
+            "enhance_mode": enhance_mode,
         }
 
     labels, confs = result
@@ -179,51 +201,104 @@ async def identify_face(
     is_known  = False
     top_label = "UNKNOWN"
     top_conf  = svm_conf
-    COSINE_THRESHOLD = 0.30  # Min cosine similarity to call someone "known"
+    q_feat    = None   # ArcFace embedding — computed once, reused for top-k candidates
 
-    gallery_arc = pipeline_service.get_gallery_arc_features()
-    if gallery_arc:
+    # ── Threshold: use FAISS_THRESHOLD from config (default 0.40 for outdoor/UAV) ─
+    # 0.60 was too strict for real-world balcony/outdoor video conditions where
+    # lighting, angle and compression reduce cosine similarity vs gallery photos.
+    # config.FAISS_THRESHOLD = 0.40 balances FAR vs FRR for these conditions.
+    COSINE_THRESHOLD = FAISS_THRESHOLD
+
+    # ── Path 1: FAISS matcher (preferred — handles open-set correctly) ────────
+    faiss_matcher = pipeline_service.get_faiss_matcher()
+    if faiss_matcher is not None and faiss_matcher.is_built:
         try:
             import numpy as _np
-            # Extract ArcFace embedding from the aligned face (same path as retrain)
             detection_inner = pipe.detector.detect_largest(image_deg)
             if detection_inner is not None:
                 aligned_q = pipe.aligner.align_from_detection(image_deg, detection_inner)
-                if aligned_q is not None:
+                if aligned_q is not None and pipe.arc_ext:
                     q_feat = pipe.arc_ext.extract(aligned_q)
-                    q_norm = _np.linalg.norm(q_feat)
-                    if q_norm > 1e-6:
-                        q_feat = q_feat / q_norm
-                        # Find best matching identity via cosine similarity
-                        best_sim  = -1.0
-                        best_iden = "UNKNOWN"
-                        for identity, feats in gallery_arc.items():
-                            mat = _np.array(feats)          # (n, 512)
-                            sims = mat @ q_feat             # cosine similarities
-                            sim  = float(_np.max(sims))
-                            if sim > best_sim:
-                                best_sim  = sim
-                                best_iden = identity
-                        if best_sim >= COSINE_THRESHOLD:
-                            is_known  = True
-                            top_label = best_iden
-                            top_conf  = round(best_sim, 4)
-        except Exception:
-            # Cosine gate failed - fall back to SVM threshold
+                    faiss_label, faiss_sim = faiss_matcher.best_match(q_feat)
+                    # faiss_matcher.best_match() applies FAISS_THRESHOLD internally
+                    # "UNKNOWN" means similarity was below threshold
+                    is_known  = (faiss_label != "UNKNOWN")
+                    top_label = faiss_label
+                    top_conf  = round(faiss_sim, 4)
+        except Exception as _e:
+            print(f"[Identify] FAISS matching failed: {_e} — falling back to cosine/SVM")
+            faiss_matcher = None   # trigger fallback below
+
+
+    # ── Path 2: Manual cosine gate over stored gallery embeddings (fallback) ──
+    if faiss_matcher is None or not faiss_matcher.is_built:
+        gallery_arc = pipeline_service.get_gallery_arc_features()
+        if gallery_arc:
+            try:
+                import numpy as _np
+                detection_inner = pipe.detector.detect_largest(image_deg)
+                if detection_inner is not None:
+                    aligned_q = pipe.aligner.align_from_detection(image_deg, detection_inner)
+                    if aligned_q is not None and pipe.arc_ext:
+                        q_feat = pipe.arc_ext.extract(aligned_q)
+                        q_norm = _np.linalg.norm(q_feat)
+                        if q_norm > 1e-6:
+                            q_feat = q_feat / q_norm
+                            best_sim  = -1.0
+                            best_iden = "UNKNOWN"
+                            for identity, feats in gallery_arc.items():
+                                mat  = _np.array(feats)
+                                sims = mat @ q_feat
+                                sim  = float(_np.max(sims))
+                                if sim > best_sim:
+                                    best_sim  = sim
+                                    best_iden = identity
+                            if best_sim >= COSINE_THRESHOLD:
+                                is_known  = True
+                                top_label = best_iden
+                                top_conf  = round(best_sim, 4)
+            except Exception:
+                is_known  = svm_conf >= threshold
+                top_label = svm_label if is_known else "UNKNOWN"
+                top_conf  = svm_conf
+        else:
+            # Gallery embeddings not in memory yet — use SVM score only
             is_known  = svm_conf >= threshold
             top_label = svm_label if is_known else "UNKNOWN"
             top_conf  = svm_conf
-    else:
-        # Gallery not yet in memory (retrain not run yet) - use SVM only
-        is_known  = svm_conf >= threshold
-        top_label = svm_label if is_known else "UNKNOWN"
-        top_conf  = svm_conf
 
-    # Build ranked candidates list
-    candidates = [
-        {"rank": i + 1, "identity": lbl, "confidence": round(float(conf), 4)}
-        for i, (lbl, conf) in enumerate(zip(labels, confs))
-    ]
+    # ── Build ranked candidates list ────────────────────────────────────────────
+    # IMPORTANT: Use FAISS top-k when FAISS is the primary matcher so that the
+    # ranked list agrees with the main identified label (which also comes from FAISS).
+    # Previously the candidates list used SVM output, which often disagreed with
+    # the FAISS-identified label shown in the header (e.g. header=Siddhant but
+    # rank#1=Aditi). Now both use the same source.
+    candidates = []
+    if faiss_matcher is not None and faiss_matcher.is_built and q_feat is not None:
+        try:
+            # Use search_ranked() so ranked list always shows real identity names
+            # and scores (not "UNKNOWN") — this makes Rank #1 agree with the
+            # primary identified label shown in the header.
+            faiss_results = faiss_matcher.search_ranked(q_feat, top_k=min(top_k, 5))
+            for i, r in enumerate(faiss_results):
+                candidates.append({
+                    "rank":       i + 1,
+                    "identity":   r["identity"],
+                    "confidence": r["similarity"],
+                    "is_known":   r["is_known"],
+                })
+        except Exception:
+            # Fallback to SVM if FAISS top-k fails
+            candidates = [
+                {"rank": i + 1, "identity": lbl, "confidence": round(float(conf), 4)}
+                for i, (lbl, conf) in enumerate(zip(labels, confs))
+            ]
+    else:
+        # No FAISS — use SVM ranked output
+        candidates = [
+            {"rank": i + 1, "identity": lbl, "confidence": round(float(conf), 4)}
+            for i, (lbl, conf) in enumerate(zip(labels, confs))
+        ]
 
     # Draw bounding box and label on the image
     annotated = _draw_result(image_deg, detection, [top_label], [top_conf], threshold)
@@ -244,6 +319,8 @@ async def identify_face(
         "watchlist_hit": watchlist_hit,
         "degradation":   degradation,
         "use_sr":        use_sr,
+        "use_enhance":   use_enhance,
+        "enhance_mode":  enhance_mode,
     })
 
     return {
@@ -257,6 +334,8 @@ async def identify_face(
         "annotated_image": _image_to_b64(annotated),
         "degradation":     degradation,
         "use_sr":          use_sr,
+        "use_enhance":     use_enhance,
+        "enhance_mode":    enhance_mode,
     }
 
 

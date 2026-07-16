@@ -25,20 +25,109 @@ PLOT_PREFIXES = ["cmc", "roc", "confusion", "pca_variance", "score_dist",
                  "ablation_rank1", "ablation_eer", "pose_rank1", "degradation"]
 
 
+def _normalize_metrics(raw: dict) -> dict:
+    """
+    Normalize metric keys from experiment JSON format to frontend-expected format.
+    Experiment scripts save: rank_1, rank_5, tar_at_far_0.1%
+    Frontend JS expects:     rank1,  rank5,  tar_at_far
+    """
+    normalized = dict(raw)  # copy
+
+    # Map underscore variants → frontend keys (if not already present)
+    key_map = {
+        "rank_1":          "rank1",
+        "rank_5":          "rank5",
+        "rank_10":         "rank10",
+        "tar_at_far_0.1%": "tar_at_far",
+        "tar_at_far_1%":   "tar_at_far_1",
+    }
+    for src, dst in key_map.items():
+        if src in normalized and dst not in normalized:
+            normalized[dst] = normalized[src]
+
+    return normalized
+
+
 def _load_latest_metrics(exp_dir: Path) -> Optional[dict]:
-    """Load the most recent metrics_*.json in an experiment directory."""
+    """Load the most recent metrics_*.json (or ablation_*.json) in an experiment directory."""
+    # Standard metrics files
     jsons = sorted(exp_dir.glob("metrics_*.json"))
-    if not jsons:
-        return None
-    with open(jsons[-1]) as f:
-        return json.load(f)
+    if jsons:
+        with open(jsons[-1]) as f:
+            return _normalize_metrics(json.load(f))
+    # Ablation study saves as ablation_*.json with nested structure
+    ablation_jsons = sorted(exp_dir.glob("ablation_*.json"))
+    if ablation_jsons:
+        with open(ablation_jsons[-1]) as f:
+            raw = json.load(f)
+        # raw is { config_name: { rank_1, eer, ... }, ... }
+        # Find the best-performing config (highest rank_1)
+        best_conf = max(raw, key=lambda k: raw[k].get("rank_1", 0), default=None)
+        if best_conf:
+            m = raw[best_conf]
+            return {
+                "rank1":      m.get("rank_1"),
+                "rank5":      m.get("rank_5"),
+                "eer":        m.get("eer"),
+                "auc":        m.get("auc"),
+                "tar_at_far": m.get("tar_at_far_0.1%"),
+                "d_prime":    m.get("d_prime"),
+                "_note":      f"Best config: {best_conf}",
+                "_all":       {
+                    k: {"rank1": v.get("rank_1"), "eer": v.get("eer")}
+                    for k, v in raw.items()
+                },
+            }
+    return None
 
 
 def _load_plots(exp_dir: Path) -> list:
-    """Return base64-encoded PNG plots from an experiment directory."""
+    """Return base64-encoded PNG plots from an experiment directory.
+
+    Deduplicates by plot type: each run saves timestamped files like
+    'cmc_20260625_003906.png', 'cmc_20260626_233012.png', etc.
+    Only the most recent file per plot type (prefix) is returned so the
+    UI shows exactly one CMC curve, one ROC curve, one confusion matrix, etc.
+    """
+    import re
+
+    def _plot_type(stem: str) -> str:
+        """
+        Extract the plot type prefix from a timestamped filename.
+        'cmc_20260625_003906'   → 'cmc'
+        'confusion_20260702'    → 'confusion'
+        'pca_variance_20260630' → 'pca_variance'
+        'ablation_rank1_...'    → 'ablation_rank1'
+        """
+        # Split on the first segment that looks like an 8-digit date (YYYYMMDD)
+        parts = re.split(r'_\d{8}', stem)
+        return parts[0].strip('_')
+
+    # Group all PNGs by their plot type, keeping the latest (alphabetically = latest timestamp)
+    type_to_png: dict[str, Path] = {}
+    for png in sorted(exp_dir.glob("*.png")):
+        ptype = _plot_type(png.stem)
+        # sorted() gives ascending order so later iteration = newer file → keeps latest
+        type_to_png[ptype] = png
+
+    # Build result in a stable display order
+    DISPLAY_ORDER = [
+        "cmc", "roc", "confusion", "score_dist", "pca_variance",
+        "ablation_rank1", "ablation_eer", "pose_rank1", "degradation",
+    ]
+
+    ordered_types = []
+    for t in DISPLAY_ORDER:
+        if t in type_to_png:
+            ordered_types.append(t)
+    # Append any types not in the explicit order list
+    for t in type_to_png:
+        if t not in ordered_types:
+            ordered_types.append(t)
+
     plots = []
-    pngs  = sorted(exp_dir.glob("*.png"))
-    for png in pngs:
+    for ptype in ordered_types:
+        png = type_to_png[ptype]
         try:
             data = png.read_bytes()
             b64  = base64.b64encode(data).decode()
