@@ -148,14 +148,26 @@ class SVMClassifier:
             )
 
         if self.probability and not self.use_grid_search:
-            # Platt scaling requires cross-validation to fit the sigmoid
-            # WHY cv=2 MINIMUM: With small galleries (e.g., 3 images/identity),
-            # we need at least 2 samples per class per fold. We compute the
-            # maximum feasible cv value to avoid empty fold errors.
-            min_class_count = min(np.bincount(y_enc))
-            cv = min(3, min_class_count // 2)
-            cv = max(2, cv)  # Ensure at least 2 folds (1 fold = no validation)
-            self._svm = CalibratedClassifierCV(svm, method="sigmoid", cv=cv)
+            # Platt scaling requires cross-validation to fit the sigmoid.
+            # CalibratedClassifierCV needs at least 2 samples per class per fold.
+            min_class_count = int(min(np.bincount(y_enc)))
+            if min_class_count >= 2:
+                # Safe to use calibrated CV — compute max feasible number of folds
+                cv = min(3, min_class_count)
+                cv = max(2, cv)
+                self._svm = CalibratedClassifierCV(svm, method="sigmoid", cv=cv)
+            else:
+                # Too few samples for cross-validation — use SVC with built-in
+                # probability=True (Platt scaling fitted on full training set)
+                svm_prob = SVC(
+                    kernel=self.kernel,
+                    C=self.C,
+                    gamma=self.gamma,
+                    probability=True,        # Platt scaling without CV
+                    class_weight="balanced",
+                    random_state=42,
+                )
+                self._svm = svm_prob
         else:
             # GridSearchCV already handles probability internally, or no calibration needed
             self._svm = svm

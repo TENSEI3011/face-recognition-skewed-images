@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
 from web.backend.services import pipeline_service
-from web.backend.config   import GALLERY_DIR, MODELS_DIR
+from web.backend.config   import GALLERY_DIR, MODELS_DIR, FAISS_THRESHOLD
 
 router = APIRouter(prefix="/api/pipeline", tags=["pipeline"])
 
@@ -66,28 +66,81 @@ def _log(job_id: str, msg: str) -> None:
         pass  # Suppress encoding errors on Windows stdout
 
 
+def _extract_feat_from_image(pipe, img: np.ndarray):
+    """
+    Attempt to extract a feature vector from img using two strategies:
+      1. Direct _extract_from_aligned (for pre-cropped 112×112 chips)
+      2. Full detect → align → extract fallback
+    Returns None if both strategies fail.
+    """
+    feat = None
+
+    # Strategy 1: treat as pre-cropped face chip — direct extraction
+    try:
+        feat = pipe._extract_from_aligned(img)
+        if feat is not None and pipe.arc_ext is not None:
+            arc_part = feat[:512] if len(feat) >= 512 else feat
+            if np.linalg.norm(arc_part) < 1e-6:
+                feat = None  # ArcFace returned zero — try fallback
+    except Exception:
+        feat = None
+
+    # Strategy 2: fallback — detect → align → extract
+    if feat is None:
+        try:
+            detection = pipe.detector.detect_largest(img)
+            if detection is not None:
+                aligned = pipe.aligner.align_from_detection(img, detection)
+                if aligned is not None:
+                    feat = pipe._extract_from_aligned(aligned)
+        except Exception:
+            feat = None
+
+    return feat
+
+
 def _load_gallery_features(pipe, job_id: str):
     """
-    Smart gallery feature extractor that handles both:
-      - Pre-cropped 112x112 face chips (most gallery images)
+    Smart gallery feature extractor.
+
+    Handles both:
+      - Pre-cropped 112×112 face chips (most gallery images)
       - Full photos with face detection fallback
 
-    Strategy per image:
-      1. Try _extract_from_aligned() directly (treats whole image as face chip)
-      2. If zero result, fallback to detect -> align -> extract
-      3. Skip if both fail
+    Gallery augmentation:
+      For each successfully extracted original image, ALSO extract features
+      from MILD and MODERATE UAV-degraded copies. This 3× the training data
+      with zero new photos — giving SVM a much more robust view of each person
+      under different lighting and blur conditions (e.g. outdoor/balcony video).
+
+      WHY THIS HELPS FOR VIDEO IDENTIFICATION:
+        Gallery photos are usually taken indoors or close-up (clean).
+        Probe frames from outdoor videos have UAV-like degradation.
+        Training on augmented gallery makes SVM generalize across this gap.
     """
+    # Pre-build augmentors once (avoids rebuilding albumentations pipeline per image)
+    try:
+        from src.augmentation import UAVAugmentor
+        aug_mild     = UAVAugmentor(profile="mild",     seed=42)
+        aug_moderate = UAVAugmentor(profile="moderate", seed=42)
+        use_augment  = True
+    except Exception as _ae:
+        _log(job_id, f"  [Augmentation] UAVAugmentor unavailable ({_ae}) — skipping augmentation.")
+        aug_mild = aug_moderate = None
+        use_augment = False
+
     X, y = [], []
     identity_dirs = sorted([d for d in GALLERY_DIR.iterdir() if d.is_dir()])
 
     for id_dir in identity_dirs:
-        identity = id_dir.name
+        identity   = id_dir.name
         image_files = [
             f for f in id_dir.iterdir()
             if f.suffix.lower() in ALLOWED_EXTENSIONS
         ]
-        saved = 0
+        saved   = 0
         skipped = 0
+        aug_saved = 0
 
         for img_path in image_files:
             img = cv2.imread(str(img_path))
@@ -95,38 +148,33 @@ def _load_gallery_features(pipe, job_id: str):
                 skipped += 1
                 continue
 
-            feat = None
-
-            # Strategy 1: treat as pre-cropped face chip - direct feature extraction
-            try:
-                feat = pipe._extract_from_aligned(img)
-                # Check if ArcFace returned a zero vector (fails on some image types)
-                if feat is not None and pipe.arc_ext is not None:
-                    arc_part = feat[:512] if len(feat) >= 512 else feat
-                    if np.linalg.norm(arc_part) < 1e-6:
-                        feat = None  # Zero result - try fallback
-            except Exception:
-                feat = None
-
-            # Strategy 2: fallback - full detect -> align -> extract
-            if feat is None:
-                try:
-                    detection = pipe.detector.detect_largest(img)
-                    if detection is not None:
-                        aligned = pipe.aligner.align_from_detection(img, detection)
-                        if aligned is not None:
-                            feat = pipe._extract_from_aligned(aligned)
-                except Exception:
-                    feat = None
-
+            # ── Original image ─────────────────────────────────────────────
+            feat = _extract_feat_from_image(pipe, img)
             if feat is not None:
                 X.append(feat)
                 y.append(identity)
                 saved += 1
+
+                # ── Augmented variants (only if original succeeded) ────────
+                if use_augment:
+                    for aug, profile_name in [(aug_mild, "mild"), (aug_moderate, "moderate")]:
+                        try:
+                            aug_img  = aug.augment(img)
+                            aug_feat = _extract_feat_from_image(pipe, aug_img)
+                            if aug_feat is not None:
+                                X.append(aug_feat)
+                                y.append(identity)
+                                aug_saved += 1
+                        except Exception:
+                            pass  # Augmentation failed — not critical
             else:
                 skipped += 1
 
-        _log(job_id, f"  {identity}: {saved} features extracted, {skipped} skipped.")
+        aug_info = f" + {aug_saved} augmented" if use_augment else ""
+        _log(job_id, f"  {identity}: {saved} original{aug_info}, {skipped} skipped.")
+
+    _log(job_id, f"Total: {len(X)} feature vectors from {len(set(y))} identities "
+                 f"({'with' if use_augment else 'without'} augmentation).")
 
     return np.array(X, dtype=np.float32), y
 
@@ -186,18 +234,79 @@ def _run_retrain(job_id: str) -> None:
         _log(job_id, f"Model saved to disk.")
 
         # Store per-class ArcFace embeddings in memory for cosine rejection.
-        # X contains the raw feature vectors (512-dim ArcFace) before PCA.
-        # These are extracted with the SAME method used at inference time,
-        # so cosine similarity against these is reliable.
+        # X contains the raw feature vectors before PCA. We only need the first
+        # 512 dimensions (ArcFace slice) for cosine / FAISS matching.
         import numpy as _np
         gallery_arc = {}
+        arc_embeddings = []   # flat list for FAISS index
+        arc_labels     = []   # parallel identity list for FAISS
+
         for feat, identity in zip(X, y):
             norm = _np.linalg.norm(feat)
             if norm > 1e-6:
-                gallery_arc.setdefault(identity, []).append(feat / norm)
+                normed = feat / norm
+                gallery_arc.setdefault(identity, []).append(normed)
+                # ArcFace is always the last 512 dims when 'arcface' is a modality.
+                # Grab the raw (un-normalized) ArcFace slice for FAISS.
+                arc_slice = feat[-512:] if len(feat) >= 512 else feat
+                arc_embeddings.append(arc_slice.astype(_np.float32))
+                arc_labels.append(identity)
+
         pipeline_service.set_gallery_arc_features(gallery_arc)
         n_stored = sum(len(v) for v in gallery_arc.values())
         _log(job_id, f"Stored {n_stored} ArcFace embeddings ({len(gallery_arc)} identities) for cosine rejection.")
+
+        # Build FAISS index with raw ArcFace embeddings extracted directly from
+        # gallery images. This MUST match what identify.py uses at inference:
+        #   pipe.arc_ext.extract(aligned_q)  → raw 512-dim ArcFace embedding
+        # Do NOT use slices from the fused feature vector (different space).
+        try:
+            from src.matcher import FAISSMatcher
+            if pipe.arc_ext is not None:
+                arc_embeddings_raw = []
+                arc_labels_raw     = []
+
+                for id_dir in sorted([d for d in GALLERY_DIR.iterdir() if d.is_dir()]):
+                    identity    = id_dir.name
+                    image_files = [f for f in id_dir.iterdir() if f.suffix.lower() in ALLOWED_EXTENSIONS]
+                    for img_path in image_files:
+                        img = cv2.imread(str(img_path))
+                        if img is None:
+                            continue
+                        # Use pre-crop fast path for small images
+                        h, w = img.shape[:2]
+                        if max(h, w) <= 150:
+                            face = cv2.resize(img, (112, 112))
+                        else:
+                            det = pipe.detector.detect_largest(img)
+                            face = pipe.aligner.align_from_detection(img, det) if det else None
+                            if face is None:
+                                face = cv2.resize(img, (112, 112))
+                        try:
+                            emb = pipe.arc_ext.extract(face)   # raw 512-dim
+                            arc_embeddings_raw.append(emb.astype(_np.float32))
+                            arc_labels_raw.append(identity)
+                        except Exception:
+                            pass
+
+                if arc_embeddings_raw:
+                    matcher = FAISSMatcher(threshold=FAISS_THRESHOLD, dim=512)
+                    emb_matrix = _np.stack(arc_embeddings_raw, axis=0)
+                    matcher.add_gallery(emb_matrix, arc_labels_raw)
+                    matcher.save(str(MODELS_DIR / "faiss_matcher"))
+                    pipeline_service.set_faiss_matcher(matcher)
+                    _log(job_id, f"FAISS index built: {matcher.n_gallery} raw ArcFace vectors, "
+                                 f"{matcher.n_identities} identities, threshold={FAISS_THRESHOLD}")
+                else:
+                    _log(job_id, "No ArcFace embeddings extracted — FAISS index skipped.")
+            else:
+                _log(job_id, "ArcFace extractor not in pipeline — FAISS index skipped.")
+        except ImportError:
+            _log(job_id, "faiss-cpu not installed — using cosine loop fallback. "
+                         "Run: pip install faiss-cpu   to enable FAISS.")
+        except Exception as _fe:
+            _log(job_id, f"FAISS build failed (non-critical): {_fe}")
+
 
         # Hot-swap the singleton so the live stream picks up immediately
         pipeline_service._status["loaded"] = True

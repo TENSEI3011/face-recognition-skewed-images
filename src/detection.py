@@ -167,7 +167,30 @@ class FaceDetector:
             return []
 
         try:
-            faces = self._app.get(image)
+            # Upscale small images so SCRFD can detect faces reliably.
+            # SCRFD uses a 640×640 input grid; tiny images (e.g. phone screenshots,
+            # compressed JPEG thumbnails) often have faces < 20px which the detector
+            # misses entirely. Upscaling to at least 640px on the short side fixes this.
+            h, w = image.shape[:2]
+            min_side = min(h, w)
+            detect_img = image
+            scale = 1.0
+            if min_side < 300:
+                scale = max(640 / min_side, 2.0)
+                new_w = int(w * scale)
+                new_h = int(h * scale)
+                detect_img = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+                print(f"[FaceDetector] Upscaled {w}x{h} -> {new_w}x{new_h} for detection.")
+
+            faces = self._app.get(detect_img)
+
+            # Scale bounding boxes and keypoints back to original image coordinates
+            if scale != 1.0:
+                for face in faces:
+                    face.bbox /= scale
+                    if face.kps is not None:
+                        face.kps /= scale
+
             return self._to_mtcnn_format(faces)
         except Exception as e:
             print(f"[FaceDetector] detect() error: {e}")

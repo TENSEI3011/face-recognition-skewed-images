@@ -6,6 +6,7 @@
   <title>Dashboard — Face Recognition UAV System</title>
   <meta name="description" content="Hybrid face recognition system for drone-based UAV surveillance — dashboard overview.">
   <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/tour.css">
 </head>
 <body>
 
@@ -155,11 +156,45 @@
   </div>
 </div>
 
+<!-- ── Welcome Tour Modal ─────────────────────────────────────────── -->
+<div id="tour-overlay" class="tour-overlay" aria-modal="true" role="dialog" aria-labelledby="tour-title">
+  <div class="tour-modal">
+    <!-- Progress bar -->
+    <div class="tour-progress-bar">
+      <div class="tour-progress-fill" id="tour-progress-fill"></div>
+    </div>
+
+    <!-- Step counter -->
+    <div class="tour-step-counter" id="tour-step-counter">Step 1 of 6</div>
+
+    <!-- Step icon -->
+    <div class="tour-icon" id="tour-icon">👋</div>
+
+    <!-- Content -->
+    <h2 class="tour-title" id="tour-title">Welcome to Face Recognition UAV System</h2>
+    <p class="tour-desc" id="tour-desc">A hybrid drone-based face recognition system powered by HOG, LBP, ArcFace, and SVM. Let's walk you through how to use it.</p>
+
+    <!-- Step dots -->
+    <div class="tour-dots" id="tour-dots"></div>
+
+    <!-- Actions -->
+    <div class="tour-actions">
+      <button class="tour-btn-skip" id="tour-btn-skip" onclick="tourSkip()">Skip Tour</button>
+      <button class="tour-btn-prev" id="tour-btn-prev" onclick="tourPrev()" style="display:none">← Back</button>
+      <button class="tour-btn-next" id="tour-btn-next" onclick="tourNext()">Get Started →</button>
+    </div>
+  </div>
+</div>
+
+<!-- Floating help button -->
+<button class="tour-help-btn" id="tour-help-btn" onclick="tourOpen()" title="How to use this system">?</button>
+
 <style>
 /* pipeline-step styles are fully handled by style.css */
 </style>
 
 <script src="/js/api.js"></script>
 <script src="/js/dashboard.js"></script>
+<script src="/js/tour.js"></script>
 </body>
 </html>

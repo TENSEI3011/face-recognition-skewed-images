@@ -121,6 +121,7 @@ logs/
 *.temp
 test.tmp
 audit_log.jsonl
+web/backend/users.json
 web/backend/watchlist.json
 web/backend/_video_output/
 
@@ -130,3 +131,28 @@ web/backend/_video_output/
 *.tgz
 *.tar.gz
 *.zip
+
+# ────────────────────────────────────────────────────────────────────────────
+# Video files (too large for git, use git-lfs or share separately)
+# ────────────────────────────────────────────────────────────────────────────
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+
+# ────────────────────────────────────────────────────────────────────────────
+# Diagnostic / one-off test scripts (not part of the project)
+# ────────────────────────────────────────────────────────────────────────────
+diagnose_video.py
+test_similarity.py
+test_faiss.py
+check_gallery.py
+generate_report_pdf.py
+Project_Analysis_Report.html
+
+# ────────────────────────────────────────────────────────────────────────────
+# Downloaded / trained model binaries (too large, download separately)
+# ────────────────────────────────────────────────────────────────────────────
+models/
+BirdsEye-RU_final/

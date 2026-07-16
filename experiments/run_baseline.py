@@ -48,6 +48,11 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime
 
+# Fix Windows cp1252 encoding — must be before any print() that uses Unicode
+if sys.stdout.encoding and sys.stdout.encoding.lower() not in ('utf-8', 'utf8'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 

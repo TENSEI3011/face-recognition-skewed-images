@@ -21,6 +21,7 @@ sys.path.insert(0, str(ROOT))
 from web.backend.config import (
     MODELS_DIR, PREDICTOR_PATH,
     DEFAULT_MODALITIES, DEFAULT_PCA_VARIANCE, DEFAULT_SVM_KERNEL,
+    FAISS_THRESHOLD,
 )
 
 from src.pipeline import FaceRecognitionPipeline
@@ -50,6 +51,11 @@ _status = {
 # Same extraction path as inference -> reliable for cosine rejection.
 _gallery_arc_features: dict = {}
 
+# FAISS matcher built at retrain time from gallery ArcFace embeddings.
+# Primary identification gate: faster and more accurate than SVM for open-set.
+# Falls back to cosine gate if FAISS is unavailable (faiss-cpu not installed).
+_faiss_matcher = None   # type: FAISSMatcher | None
+
 
 def get_pipeline() -> Optional[FaceRecognitionPipeline]:
     """Return the loaded pipeline, or None if not yet loaded."""
@@ -73,6 +79,17 @@ def set_gallery_arc_features(features: dict) -> None:
 def get_gallery_arc_features() -> dict:
     """Return stored per-class ArcFace embeddings (empty dict if not yet set)."""
     return _gallery_arc_features
+
+
+def set_faiss_matcher(matcher) -> None:
+    """Store the FAISS matcher built during retrain for use by identify endpoint."""
+    global _faiss_matcher
+    _faiss_matcher = matcher
+
+
+def get_faiss_matcher():
+    """Return the FAISS matcher (None if not yet built or faiss not installed)."""
+    return _faiss_matcher
 
 
 def update_config(new_config: dict) -> dict:
@@ -137,6 +154,25 @@ def _do_load() -> None:
             _status["error"]  = f"No trained model found at {models_dir}. Run a baseline experiment first."
 
         _pipeline = pipe
+
+        # Also try to load the persisted FAISS index from disk.
+        # This means FAISS matching works immediately on server restart
+        # without needing to trigger a retrain.
+        faiss_path = models_dir / "faiss_matcher"
+        if faiss_path.with_suffix(".faiss").exists():
+            try:
+                from src.matcher import FAISSMatcher
+                global _faiss_matcher
+                _faiss_matcher = FAISSMatcher.load(faiss_path)
+                # Override threshold from disk with the current config value
+                # so outdoor/balcony conditions work without needing a retrain.
+                _faiss_matcher.threshold = FAISS_THRESHOLD
+                print(f"[PipelineService] FAISS index loaded from disk: "
+                      f"{_faiss_matcher.n_gallery} vectors, "
+                      f"{_faiss_matcher.n_identities} identities, "
+                      f"threshold overridden to {FAISS_THRESHOLD}")
+            except Exception as _fe:
+                print(f"[PipelineService] FAISS load failed (non-critical): {_fe}")
 
     except Exception as e:
         _status["loaded"] = False

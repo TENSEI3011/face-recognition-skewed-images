@@ -84,8 +84,8 @@
           </div>
 
           <div class="form-group">
-            <label class="form-label">Confidence Threshold: <span id="thresh-val">35%</span></label>
-            <input type="range" id="threshold" min="10" max="90" value="35"
+            <label class="form-label">Confidence Threshold: <span id="thresh-val">50%</span></label>
+            <input type="range" id="threshold" min="10" max="90" value="50"
               oninput="document.getElementById('thresh-val').textContent = this.value + '%'">
           </div>
 
@@ -109,6 +109,27 @@
             </label>
           </div>
 
+          <div class="toggle-row" style="margin-top:10px">
+            <div>
+              <div class="toggle-label">✨ Enhance Image</div>
+              <div class="toggle-sub">Deblur + dehaze + CLAHE for blurry or foggy images</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="use-enhance" onchange="toggleEnhanceMode()">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+
+          <div id="enhance-mode-wrap" style="display:none;margin-top:8px">
+            <label class="form-label" style="font-size:.76rem">Enhancement Mode</label>
+            <select id="enhance-mode" class="form-control" style="font-size:.82rem">
+              <option value="auto">Auto — CLAHE + Dehaze + Sharpen (recommended)</option>
+              <option value="sharp">Sharpen — CLAHE + Unsharp mask (blurry images)</option>
+              <option value="dehaze">Dehaze — CLAHE + Dark channel prior (foggy images)</option>
+              <option value="full">Full — All stages incl. Wiener deconvolution (heavy blur)</option>
+            </select>
+          </div>
+
           <button class="btn btn-primary w-full" id="identify-btn" onclick="runIdentify()" style="margin-top:14px">
             🔍 Run Identification
           </button>
@@ -129,7 +150,7 @@
               🚨 <strong>WATCHLIST ALERT!</strong> This identity is on the watchlist.
             </div>
             <!-- Verdict banner -->
-             <div id="verdict-banner" style="padding:14px 16px;border:1px solid var(--panel-line);margin-bottom:16px;display:flex;align-items:center;gap:12px">
+             <div id="verdict-banner" style="padding:14px 16px;border:1px solid var(--panel-line);border-left:4px solid var(--dim);margin-bottom:16px;display:flex;align-items:center;gap:12px;background:var(--panel);transition:background .2s,border-left-color .2s">
               <div id="verdict-icon" style="font-size:1.8rem"></div>
               <div>
                 <div id="verdict-name" style="font-size:1.1rem;font-weight:700"></div>

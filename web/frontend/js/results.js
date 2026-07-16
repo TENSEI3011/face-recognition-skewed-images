@@ -143,13 +143,18 @@ function showJobStatus(exp, jobId, status, output) {
   if (!el) return;
   const colorMap = { running: 'info', done: 'success', error: 'danger', pending: 'warning' };
   const type = colorMap[status] || 'info';
+  const statusIcon = { running: '⏳', done: '✅', error: '❌', pending: '⏸' }[status] || '·';
   el.innerHTML = `
-    <div class="alert alert-${type} mb-3">
-      <strong>Job ${jobId} — ${status.toUpperCase()}</strong>
-      ${status === 'running' ? ' <span class="spinner" style="width:14px;height:14px"></span>' : ''}
-      ${status === 'done' ? ' Results updated — <a href="" onclick="location.reload();return false">Reload page</a> to see new plots.' : ''}
+    <div class="alert alert-${type} mb-3" style="display:flex;align-items:center;gap:10px;">
+      <span style="font-size:1.1em">${statusIcon}</span>
+      <div style="flex:1">
+        <strong>Job ${jobId} — ${status.toUpperCase()}</strong>
+        ${status === 'running' ? ' <span class="spinner" style="width:14px;height:14px"></span>' : ''}
+        ${status === 'done' ? '<br><span class="text-sm">Results updated — <a href="" onclick="location.reload();return false">Reload page</a> to see new plots.</span>' : ''}
+        ${status === 'error' ? '<br><span class="text-sm" style="color:inherit;opacity:.85">Script failed. Check the console output below for details.<br>Make sure data/gallery/ and data/probe/ have identity subfolders with face images.</span>' : ''}
+      </div>
     </div>
-    ${output ? `<div class="console-log mb-3">${output.slice(-2000)}</div>` : ''}
+    ${output ? `<div class="console-log mb-3" style="max-height:260px;overflow-y:auto;font-size:.78rem;white-space:pre-wrap;word-break:break-all;">${output.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').slice(-3000)}</div>` : ''}
   `;
 }
 

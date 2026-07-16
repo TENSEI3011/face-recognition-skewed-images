@@ -10,6 +10,7 @@ import threading
 import subprocess
 import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, Optional
 
 # job_id → job_info dict
@@ -45,14 +46,31 @@ def run_job(job_id: str, script_path: str) -> None:
         job["status"]  = "running"
         job["started"] = datetime.utcnow().isoformat()
 
+    # Project root = three levels up from this file (web/backend/services/)
+    project_root = str(Path(__file__).resolve().parents[3])
+
+    # Extra env: force UTF-8 so Unicode chars in script output don't crash on Windows
+    import os as _os
+    env = _os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"]       = "1"
+
+    # Windows: CREATE_NO_WINDOW avoids console popup and encoding conflicts
+    extra_kwargs = {}
+    if sys.platform == "win32":
+        extra_kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
+
     try:
         proc = subprocess.Popen(
-            [sys.executable, script_path],
+            [sys.executable, "-u", script_path],  # -u = unbuffered output
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             encoding="utf-8",
             errors="replace",
+            cwd=project_root,
+            env=env,
+            **extra_kwargs,
         )
         output_lines = []
         for line in proc.stdout:

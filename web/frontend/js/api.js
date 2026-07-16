@@ -69,13 +69,14 @@ const API = {
     return res.json();
   },
 
-  // Upload a file with FormData — longer timeout for big uploads
+  // Upload a file with FormData — NO timeout (video processing can take many minutes)
   async upload(path, formData) {
-    const res = await _fetchWithTimeout(API_BASE + path, {
+    const res = await fetch(API_BASE + path, {
       method: 'POST',
       headers: { ...getAuthHeaders() },
       body: formData,
-    }, 120000); // 2 minute timeout for uploads
+      // No AbortController — let the server take as long as it needs
+    });
     if (res.status === 401) { logout(); return; }
     if (!res.ok) {
       const txt = await res.text();

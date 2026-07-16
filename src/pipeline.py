@@ -217,8 +217,29 @@ class FaceRecognitionPipeline:
                 if augmentor is not None:
                     img = augmentor.augment(img)
 
-                feat = self.extract_features(img)
-                if feat is not None:  # None means no face was detected — skip
+                h, w = img.shape[:2]
+                feat = None
+
+                # Fast path: small images (<=150px) are pre-aligned face crops.
+                # Skip SCRFD detection entirely — it always fails on tight crops
+                # (no background context) and wastes time upscaling to 640x640.
+                if max(h, w) <= 150:
+                    try:
+                        aligned = cv2.resize(img, (112, 112), interpolation=cv2.INTER_LINEAR)
+                        feat = self._extract_from_aligned(aligned)
+                    except Exception:
+                        feat = None
+                else:
+                    feat = self.extract_features(img)
+                    # Secondary fallback: larger images where detection failed
+                    if feat is None and max(h, w) <= 200:
+                        try:
+                            aligned = cv2.resize(img, (112, 112), interpolation=cv2.INTER_LINEAR)
+                            feat = self._extract_from_aligned(aligned)
+                        except Exception:
+                            feat = None
+
+                if feat is not None:
                     X.append(feat)
                     y.append(identity)
 
