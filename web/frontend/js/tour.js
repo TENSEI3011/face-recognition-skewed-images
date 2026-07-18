@@ -10,37 +10,37 @@ const TOUR_STEPS = [
   {
     icon: '👋',
     title: 'Welcome to Face Recognition UAV System',
-    desc: 'This is a hybrid drone-based face recognition system powered by HOG, LBP, ArcFace deep embeddings, and an SVM classifier. This short tour (6 steps) will show you how to use every feature.',
+    desc: 'A hybrid drone-based face recognition system with <strong>passive liveness detection</strong> (anti-spoofing), powered by SCRFD detection, HOG + LBP + ArcFace feature fusion, and FAISS cosine matching. This short tour (6 steps) will show you how to use every feature.',
   },
   {
     icon: '👤',
     title: 'Step 1 — Enroll Faces in the Gallery',
-    desc: 'Go to <strong>Gallery</strong> in the sidebar. Create a new identity by entering a person\'s name, then upload one or more clear face images. These enrolled images are used to train the recognition pipeline.',
+    desc: 'Go to <strong>Gallery</strong> in the sidebar. Create a new identity by entering a person\'s name, then upload clear face images or a short video clip. Enrolled images train the FAISS index — no retraining wait needed for immediate recognition.',
   },
   {
     icon: '🔍',
     title: 'Step 2 — Identify a Face',
-    desc: 'Go to <strong>Identify Face</strong> in the sidebar. Upload any UAV/drone image containing a face. The pipeline will detect, align, extract features, and return the predicted identity with a confidence score.',
+    desc: 'Go to <strong>Identify Face</strong> in the sidebar. Upload any UAV/drone image. The pipeline detects the face with SCRFD, checks <strong>🛡️ liveness</strong> (rejects printed photos &amp; screens), then extracts features and matches using FAISS cosine similarity. Returns the identity with confidence score.',
   },
   {
     icon: '📷',
     title: 'Step 3 — Run the Live Demo',
-    desc: 'Go to <strong>Live Demo</strong> in the sidebar. You can stream from your webcam or upload a drone video. Faces will be detected and identified in real-time with bounding boxes and name labels.',
+    desc: 'Go to <strong>Live Demo</strong> in the sidebar. Stream from your webcam or upload a drone video. Every face is checked for liveness before identification. Spoofed faces are flagged <strong>⚠️ SPOOF</strong> in real-time with a distinct colour box.',
   },
   {
     icon: '📊',
-    title: 'Step 4 — View Experiments & Analytics',
-    desc: 'Use <strong>Experiments & Results</strong> to run ablation studies (HOG, LBP, ArcFace combinations). Check <strong>Analytics</strong> for performance charts, accuracy trends, and evaluation metrics like Rank-1, EER, and AUC.',
+    title: 'Step 4 — View Experiments &amp; Analytics',
+    desc: 'Use <strong>Experiments &amp; Results</strong> to run ablation studies (HOG, LBP, ArcFace combinations) and degradation sweeps (CLEAN → EXTREME altitude profiles). Check <strong>Analytics</strong> for performance charts, accuracy trends, and evaluation metrics like Rank-1, EER, and AUC.',
   },
   {
     icon: '🚨',
-    title: 'Step 5 — Watchlist & Audit Log',
-    desc: 'Add persons of interest to the <strong>Watchlist</strong> — you\'ll be alerted when they are detected. The <strong>Audit Log</strong> records every identification event. Use <strong>Configuration</strong> to tune the pipeline settings.',
+    title: 'Step 5 — Watchlist, Audit &amp; Configuration',
+    desc: 'Add persons of interest to the <strong>Watchlist</strong> — you\'ll be alerted when they are detected. The <strong>Audit Log</strong> records every identification event including liveness score and spoof flags. Use <strong>Configuration</strong> to tune FAISS threshold, PCA variance, and the 🛡️ liveness sensitivity.',
   },
   {
     icon: '✅',
     title: 'You\'re all set!',
-    desc: 'The system is ready to use. Click the <strong>purple ? button</strong> at the bottom-right anytime to reopen this guide. Visit <strong>API Docs</strong> in the sidebar for programmatic access. Good luck! 🎉',
+    desc: 'The system is ready. Click the <strong>purple ? button</strong> at the bottom-right anytime to reopen this guide. Visit <strong>API Docs</strong> in the sidebar for programmatic access. 🎉',
   },
 ];
 

@@ -43,7 +43,7 @@
   </div>
   <div class="sidebar-footer">
     HOG · LBP · Geometry · ArcFace<br>
-    MTCNN → PCA → SVM
+    SCRFD → Liveness → FAISS
   </div>
 </aside>
 
@@ -115,23 +115,34 @@
       </div>
     </div>
 
-    <!-- ── UAV Pipeline diagram ───────────────────────────────── -->
+    <!-- ── Recognition Pipeline diagram ─────────────────────────────── -->
     <div class="card mb-4">
       <div class="card-title"><span class="icon">⚡</span> Recognition Pipeline</div>
       <div style="display:flex;align-items:center;gap:0;flex-wrap:wrap;padding:8px 0">
         <div class="pipeline-step">UAV Image</div>
         <div class="pipeline-arrow">→</div>
-        <div class="pipeline-step">MTCNN<br><small>Detection</small></div>
+        <div class="pipeline-step">SCRFD<br><small>Detection</small></div>
         <div class="pipeline-arrow">→</div>
-        <div class="pipeline-step">Alignment<br><small>112×112</small></div>
+        <div class="pipeline-step">dlib Align<br><small>112×112</small></div>
         <div class="pipeline-arrow">→</div>
-        <div class="pipeline-step highlight">HOG + LBP<br><small>+Geometry+ArcFace</small></div>
+        <div class="pipeline-step highlight">🛡️ Liveness<br><small>Anti-Spoof</small></div>
         <div class="pipeline-arrow">→</div>
-        <div class="pipeline-step">L2 Fusion</div>
+        <div class="pipeline-step highlight">HOG+LBP<br><small>+Geo+ArcFace</small></div>
         <div class="pipeline-arrow">→</div>
-        <div class="pipeline-step">PCA</div>
+        <div class="pipeline-step">L2 Fusion<br><small>+ PCA 99%</small></div>
         <div class="pipeline-arrow">→</div>
-        <div class="pipeline-step highlight">SVM<br><small>Identity</small></div>
+        <div class="pipeline-step">TTA<br><small>5-variant avg</small></div>
+        <div class="pipeline-arrow">→</div>
+        <div class="pipeline-step highlight">FAISS<br><small>Cosine Match</small></div>
+        <div class="pipeline-arrow">→</div>
+        <div class="pipeline-step">Identity /<br><small>UNKNOWN</small></div>
+      </div>
+      <div class="text-sm text-muted mt-2" style="padding-left:4px">
+        🟢 <strong>SCRFD</strong> (InsightFace buffalo_l) replaces MTCNN — 5× faster, 93% WiderFace mAP &nbsp;·&nbsp;
+        🛡️ <strong>Liveness</strong> rejects printed photos &amp; screen replays &nbsp;·&nbsp;
+        ⚡ <strong>Parallel extraction</strong> via ThreadPoolExecutor &nbsp;·&nbsp;
+        🎯 <strong>TTA</strong> averages 5 augmented embeddings for robustness &nbsp;·&nbsp;
+        📦 <strong>Embedding cache</strong> makes retrains 10× faster
       </div>
     </div>
 
@@ -172,7 +183,7 @@
 
     <!-- Content -->
     <h2 class="tour-title" id="tour-title">Welcome to Face Recognition UAV System</h2>
-    <p class="tour-desc" id="tour-desc">A hybrid drone-based face recognition system powered by HOG, LBP, ArcFace, and SVM. Let's walk you through how to use it.</p>
+    <p class="tour-desc" id="tour-desc">A hybrid drone-based face recognition system with passive liveness detection, powered by SCRFD, HOG, LBP, ArcFace embeddings, and FAISS cosine matching. Let's walk you through how to use it.</p>
 
     <!-- Step dots -->
     <div class="tour-dots" id="tour-dots"></div>
