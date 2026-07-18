@@ -36,16 +36,31 @@ function applyConfig(cfg) {
     document.getElementById('svm-kernel').value = cfg.svm_kernel;
   }
 
+  // ── Liveness / Anti-Spoofing ─────────────────────────────────────────────
+  if (cfg.liveness_enabled != null) {
+    document.getElementById('liveness-enabled').checked = cfg.liveness_enabled;
+  }
+  if (cfg.liveness_threshold != null) {
+    const pct = Math.round(cfg.liveness_threshold * 100);
+    document.getElementById('liveness-threshold').value = pct;
+    document.getElementById('liveness-val').textContent = pct + '%';
+  }
+
   renderSummary(cfg);
 }
 
 function renderSummary(cfg) {
   const mods = cfg.modalities || [];
+  const livenessOn = cfg.liveness_enabled !== false;
+  const livThresh  = cfg.liveness_threshold != null
+    ? (cfg.liveness_threshold * 100).toFixed(0) + '%'
+    : '50%';
+
   const el = document.getElementById('config-summary');
   el.innerHTML = `
     <div class="table-wrap"><table><tbody>
       <tr>
-        <td class="text-muted text-sm" style="width:140px">Modalities</td>
+        <td class="text-muted text-sm" style="width:160px">Modalities</td>
         <td>${mods.map(m => `<span class="badge badge-blue" style="margin-right:4px">${m.toUpperCase()}</span>`).join('')}</td>
       </tr>
       <tr>
@@ -64,6 +79,15 @@ function renderSummary(cfg) {
         <td class="text-muted text-sm">Top-K</td>
         <td class="mono">${cfg.top_k ?? '—'}</td>
       </tr>
+      <tr>
+        <td class="text-muted text-sm">🛡️ Liveness</td>
+        <td>
+          <span class="badge ${livenessOn ? 'badge-blue' : ''}" style="margin-right:6px">
+            ${livenessOn ? '✅ Enabled' : '⚠️ Disabled'}
+          </span>
+          <span class="text-muted text-sm">threshold: ${livThresh}</span>
+        </td>
+      </tr>
     </tbody></table></div>
   `;
 }
@@ -81,11 +105,14 @@ async function saveConfig() {
   }
 
   const payload = {
-    modalities:   mods,
-    pca_variance: parseInt(document.getElementById('pca-variance').value, 10) / 100,
-    svm_kernel:   document.getElementById('svm-kernel').value,
-    threshold:    parseInt(document.getElementById('conf-threshold').value, 10) / 100,
-    top_k:        parseInt(document.getElementById('top-k').value, 10),
+    modalities:          mods,
+    pca_variance:        parseInt(document.getElementById('pca-variance').value, 10) / 100,
+    svm_kernel:          document.getElementById('svm-kernel').value,
+    threshold:           parseInt(document.getElementById('conf-threshold').value, 10) / 100,
+    top_k:               parseInt(document.getElementById('top-k').value, 10),
+    // ── Liveness ─────────────────────────────────────────────────────────
+    liveness_enabled:    document.getElementById('liveness-enabled').checked,
+    liveness_threshold:  parseInt(document.getElementById('liveness-threshold').value, 10) / 100,
   };
 
   setLoading('save-btn', true, 'Saving…');

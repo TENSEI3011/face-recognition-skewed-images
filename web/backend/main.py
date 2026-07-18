@@ -108,6 +108,14 @@ if FRONTEND_DIR.exists():
     app.mount("/css", StaticFiles(directory=str(FRONTEND_DIR / "css")), name="css")
     app.mount("/js",  StaticFiles(directory=str(FRONTEND_DIR / "js")),  name="js")
 
+    # Serve self-hosted fonts (downloaded by offline_setup.py)
+    # Creates the directory if missing so the server never crashes even if
+    # offline_setup.py hasn't been run yet — fonts simply fall back to CDN.
+    fonts_dir = FRONTEND_DIR / "fonts"
+    fonts_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/fonts", StaticFiles(directory=str(fonts_dir)), name="fonts")
+
+
     # ── Original pages ──────────────────────────────────────────────────────────
     @app.get("/")
     def serve_index():

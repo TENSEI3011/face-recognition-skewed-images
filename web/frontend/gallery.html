@@ -66,19 +66,37 @@
             <input type="text" id="identity-name" class="form-control" placeholder="e.g. Siddhant_Sharma">
           </div>
           <div class="form-group">
-            <label class="form-label">Upload Face Images</label>
+            <label class="form-label">Upload Face Images or Video</label>
             <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
-              <div class="upload-icon">📁</div>
+              <div class="upload-icon" id="upload-icon">📁</div>
               <div class="upload-text">
-                <strong>Click to browse</strong> or drag & drop<br>
-                <span style="font-size:.75rem">JPG, PNG, BMP · Multiple files allowed</span>
+                <strong>Click to browse</strong> or drag &amp; drop<br>
+                <span style="font-size:.75rem">Images: JPG, PNG, BMP &nbsp;|&nbsp; Video: MP4, AVI, MOV, MKV, WEBM</span>
               </div>
             </div>
-            <input type="file" id="file-input" multiple accept="image/*" style="display:none">
+            <input type="file" id="file-input" multiple
+              accept="image/*,.mp4,.avi,.mov,.mkv,.webm"
+              style="display:none">
             <div id="selected-files" class="text-sm text-muted mt-2"></div>
           </div>
+
+          <!-- Video frame interval (shown only when a video is selected) -->
+          <div id="video-options" class="form-group hidden" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px">
+            <label class="form-label" style="margin-bottom:4px">
+              🎞️ Frame Sampling Interval
+              <span id="frame-interval-val" style="font-weight:700;color:var(--accent)">15</span> frames
+              <span style="color:var(--muted);font-size:.75rem">(≈ 2 samples per second at 30 fps)</span>
+            </label>
+            <input type="range" id="frame-interval" min="5" max="90" value="15" step="5"
+              style="width:100%;accent-color:var(--accent)"
+              oninput="document.getElementById('frame-interval-val').textContent=this.value">
+            <div style="display:flex;justify-content:space-between;font-size:.7rem;color:var(--muted);margin-top:2px">
+              <span>Dense (every 5f)</span><span>Sparse (every 90f)</span>
+            </div>
+          </div>
+
           <button class="btn btn-primary" id="upload-btn" onclick="uploadIdentity()">
-            Upload & Enroll
+            Upload &amp; Enroll
           </button>
           <button class="btn btn-secondary" onclick="document.getElementById('upload-panel').classList.add('hidden')" style="margin-left:8px">
             Cancel
@@ -87,10 +105,11 @@
         <div>
           <div class="alert alert-info">
             <strong>Tips for good enrollment:</strong><br>
-            • Use 5–20 images per identity for best accuracy<br>
+            • <strong>Images:</strong> Use 5–20 varied photos per identity<br>
+            • <strong>Video:</strong> A 10–30 s clip works great — frames are auto-sampled<br>
             • Include varied lighting and slight pose variation<br>
             • Ensure face is clearly visible (not obscured)<br>
-            • Use high-quality images where possible
+            • Video enrollment requires MongoDB connection
           </div>
         </div>
       </div>

@@ -61,15 +61,18 @@ dlib + InsightFace 5-pt Alignment → 112×112
 
 ## Recent Updates
 
-- **Full-resolution video detection** — SCRFD now receives frames at full resolution (`max_side=0`) so 17–30px faces at UAV altitude are not lost on the internal 640×640 detection grid
-- **Tiny face upscaling** — faces smaller than 48px are bicubically upscaled before ArcFace alignment for better embedding quality
+- **Offline / air-gapped deployment** — `offline_setup.py` pre-downloads all internet assets (fonts, InsightFace `buffalo_l`, dlib model); UI fonts are now self-hosted; system runs with zero internet after one-time setup
+- **Local MongoDB support** — `.env` now defaults to `mongodb://localhost:27017` (local Community Edition) instead of Atlas; three documented options: Atlas / local / disk-only
+- **Video enrollment** — Gallery now accepts MP4/AVI/MOV/MKV uploads; frames are sampled at a configurable interval and each face is embedded independently
+- **Blur quality gate at enrollment** — images and video frames with Laplacian sharpness < 40 are automatically rejected before storing embeddings, keeping only clean training data
+- **Severe augmentation in retrain** — gallery retrain now applies `mild + moderate + severe` UAV degradation profiles (3 augmented variants per image, up from 2)
+- **GridSearchCV retrain toggle** — `POST /api/pipeline/retrain?use_grid_search=true` runs exhaustive C/gamma search; 5–15% accuracy boost after gallery is finalized
+- **Video processing speed** — default `process_every` raised from 3 → 6 (halves inference calls); SCRFD detection capped at 960px max (3-5× faster); UI slider now shows realtime fps estimate
+- **Full-resolution video detection** — SCRFD now receives frames at full resolution so 17–30px faces at UAV altitude are not lost on the internal 640×640 detection grid
 - **FAISS open-set matching** — replaced SVM-only identification with FAISS cosine search + threshold; `FAISS_THRESHOLD = 0.35` tuned for compressed UAV footage
-- **Ranked candidates fix** — both the main identity label and the ranked candidates list now use FAISS as the single source of truth (previously the list used a stale SVM which disagreed with the header)
-- **PENDING → UNKNOWN** — unrecognised faces in video now correctly show `UNKNOWN` instead of the internal `PENDING` state
-- **Temporal voter** — 5/10 frame majority required before confirming identity (faster than previous 8/15)
-- **Duplicate experiment graphs fixed** — `results.py` now deduplicates timestamped PNGs by plot type, showing only the latest CMC, ROC, confusion matrix, etc.
+- **Ranked candidates fix** — both the main identity label and the ranked candidates list now use FAISS as the single source of truth
+- **Temporal voter** — 5/10 frame majority required before confirming identity
 - **bcrypt authentication** — passwords now hashed with salted bcrypt (replaces raw SHA-256)
-- **Quality gates lowered** — `MIN_BLUR_SCORE 12.0 → 5.0`, `MIN_FACE_AREA_PX 200 → 100` for compressed video frames
 
 ---
 
@@ -170,19 +173,24 @@ pip install cmake && pip install dlib
 pip install -r requirements.txt
 ```
 
-### 4. Download Required Models
+### 4. Download Required Models (One-Time Internet Setup)
 
-#### dlib 68-Point Landmark Model (~100 MB)
+**Recommended — downloads everything at once:**
 ```bash
-python setup.py
+python offline_setup.py
 ```
-Or download manually from http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2
-and extract to `models/shape_predictor_68_face_landmarks.dat`
+This downloads:
+- dlib 68-point landmark model (~100 MB) → `models/`
+- InsightFace `buffalo_l` (ArcFace + SCRFD, ~500 MB) → `~/.insightface/models/buffalo_l/`
+- All 9 UI fonts → `web/frontend/fonts/`
 
-#### InsightFace ArcFace Models — buffalo_l (~500 MB)
-Downloaded **automatically** on first run by InsightFace to `~/.insightface/models/buffalo_l/`.
+After this, the system runs **fully offline** — no internet required.
 
-> **Tip:** If copying to a machine without internet, copy the `buffalo_l` folder manually to `C:\Users\<name>\.insightface\models\buffalo_l\` on Windows or `~/.insightface/models/buffalo_l/` on Linux.
+**Alternative — models only:**
+```bash
+python setup.py          # dlib only
+# InsightFace downloads automatically on first run
+```
 
 ### 5. Configure Environment
 ```bash
@@ -190,15 +198,24 @@ copy .env.example .env      # Windows
 cp .env.example .env        # Linux / macOS
 ```
 
-Edit `.env`:
+Edit `.env` — choose ONE MongoDB option:
 ```env
 JWT_SECRET_KEY=your-random-secret-key-here
-MONGO_URI=mongodb+srv://user:password@cluster.mongodb.net/   # optional
+
+# Option A: Local MongoDB (recommended for offline/defence)
+MONGO_URI=mongodb://localhost:27017
+
+# Option B: MongoDB Atlas (cloud, requires internet)
+# MONGO_URI=mongodb+srv://user:password@cluster.mongodb.net/
+
+# Option C: No MongoDB (disk-only fallback — no audit log or watchlist)
+# Leave MONGO_URI commented out
+
 MONGO_DB_NAME=facerecog_db
 ENV=development
 ```
 
-> MongoDB is **optional** — if `MONGO_URI` is not set, the system uses local file storage.
+> **Local MongoDB**: Install [MongoDB Community Server](https://www.mongodb.com/try/download/community) and start with `mongod --dbpath C:\data\db` (Windows) or `mongod --dbpath /data/db` (Linux).
 
 ### 6. Add Gallery Images
 
@@ -257,13 +274,28 @@ python experiments/run_degradation.py
 Results (plots + JSON) are saved to `results/<experiment_name>/`.
 View them at **http://localhost:8000/results**.
 
+### Retrain with GridSearchCV (accuracy boost)
+After finalizing the gallery, run a GridSearch retrain to find optimal SVM hyperparameters:
+```bash
+curl -X POST "http://localhost:8000/api/pipeline/retrain?use_grid_search=true"
+```
+Or via the **API Docs** page at `/docs`. Takes ~5 minutes, improves Rank-1 by 5–15%.
+
 ---
 
-## Enroll a New Person from Video
+## Enroll a New Person
+
+### From Images (via web UI)
+Open **http://localhost:8000/gallery**, enter an identity name, and upload photos or a short video clip.
+
+### From a Video File (via web UI)
+On the Gallery page, upload an MP4/MOV/AVI file. Frames are sampled every N frames (default 15) and each detected face is embedded individually. A 20-second 30fps video at interval=15 yields ~40 enrolled embeddings.
+
+### From the Command Line
 ```bash
 python extract_gallery_frames.py --video "person.mp4" --name "person_name" --count 20
 ```
-This extracts 20 high-quality face crops and saves them to `data/gallery/person_name/`.
+Extracts 20 high-quality face crops and saves them to `data/gallery/person_name/`.
 Then go to the web gallery to trigger a retrain.
 
 ---

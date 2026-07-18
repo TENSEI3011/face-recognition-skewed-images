@@ -4,8 +4,58 @@
    Design system matches reference styles.css
    ============================================================ */
 
-/* ── Google Fonts ──────────────────────────────────────────── */
-@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
+/* ── Fonts — LOCAL ONLY (fully offline, no CDN) ────────────────────────────
+   Run offline_setup.py once to download fonts to web/frontend/fonts/
+   No CDN fallback — if local files missing, browser uses system fonts.
+   This guarantees ZERO outbound requests in air-gapped deployments.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: normal; font-weight: 500; font-display: swap;
+  src: url('/fonts/BarlowCondensed-Medium.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: normal; font-weight: 600; font-display: swap;
+  src: url('/fonts/BarlowCondensed-SemiBold.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: normal; font-weight: 700; font-display: swap;
+  src: url('/fonts/BarlowCondensed-Bold.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal; font-weight: 400; font-display: swap;
+  src: url('/fonts/IBMPlexMono-Regular.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal; font-weight: 500; font-display: swap;
+  src: url('/fonts/IBMPlexMono-Medium.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal; font-weight: 600; font-display: swap;
+  src: url('/fonts/IBMPlexMono-SemiBold.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal; font-weight: 400; font-display: swap;
+  src: url('/fonts/Inter-Regular.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal; font-weight: 500; font-display: swap;
+  src: url('/fonts/Inter-Medium.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal; font-weight: 600; font-display: swap;
+  src: url('/fonts/Inter-SemiBold.ttf') format('truetype');
+}
+
 
 /* ── Design Tokens ─────────────────────────────────────────── */
 :root {

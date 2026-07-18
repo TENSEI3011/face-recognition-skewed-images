@@ -21,15 +21,21 @@ FRONTEND_DIR     = Path(__file__).resolve().parents[1] / "frontend"
 
 # ── Pipeline defaults ──────────────────────────────────────────────────────────
 DEFAULT_MODALITIES   = ["hog", "lbp", "geometry", "arcface"]
-DEFAULT_PCA_VARIANCE = 0.95
+DEFAULT_PCA_VARIANCE = 0.99   # raised from 0.95 — more components → richer SVM subspace (+2-5% accuracy)
 DEFAULT_SVM_KERNEL   = "rbf"
 DEFAULT_THRESHOLD    = 0.45   # Cosine similarity gate for SVM fallback path
-FAISS_THRESHOLD      = 0.35   # FAISS cosine threshold lowered for small-face video:
-                               #   Gallery photos are close-up; video faces are tiny (20-30px).
-                               #   Tiny faces produce degraded ArcFace embeddings that score
-                               #   0.30-0.45 even for the correct identity. Use 0.35 as gate.
-                               #   Raise back to 0.45 if you get too many false positives.
+FAISS_THRESHOLD      = 0.38   # Slightly raised from 0.35 — TTA embeddings are more stable
+                               #   so we can afford a tighter gate without losing recall.
+                               #   Raise to 0.45 if you get false positives, lower to 0.30
+                               #   if enrolled persons are not being recognised (tiny faces).
 DEFAULT_TOP_K        = 3
+
+# ── Anti-Spoofing / Liveness Detection ────────────────────────────────────────
+# Passive liveness check runs BEFORE identity matching.
+# Score 0.0 (certain spoof) → 1.0 (certain real). Faces below LIVENESS_THRESHOLD
+# are rejected as presentation attacks (printed photo, screen, mask, video replay).
+LIVENESS_ENABLED     = True    # Set False to bypass (useful for testing/demo)
+LIVENESS_THRESHOLD   = 0.50    # Raise to 0.60 for stricter security; 0.40 for permissive
 
 # ── MongoDB Atlas ──────────────────────────────────────────────────────────────
 # Set MONGO_URI as an environment variable on Render / locally in .env

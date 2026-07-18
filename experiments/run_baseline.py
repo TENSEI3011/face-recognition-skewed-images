@@ -97,6 +97,14 @@ def parse_args():
     return parser.parse_args()
 
 
+def _get_identity_dirs(root: str) -> set:
+    """Return the set of identity names (subdirectory names) in a dataset root."""
+    p = Path(root)
+    if not p.exists():
+        return set()
+    return {d.name for d in p.iterdir() if d.is_dir()}
+
+
 def main():
     args = parse_args()
     results_dir = Path(args.results)
@@ -112,6 +120,52 @@ def main():
     print(f"{'='*65}\n")
 
     # -------------------------------------------------------------------------
+    # 0. Gallery / Probe intersection check  ← NEW
+    # -------------------------------------------------------------------------
+    # WHY THIS MATTERS:
+    #   The baseline trains the SVM on gallery identities and evaluates on probe.
+    #   If gallery has identities NOT in probe (e.g. a newly enrolled person with
+    #   no probe images yet), the SVM learns an extra class that has no probe
+    #   images to match against. This "phantom" class steals confident predictions
+    #   from the real probe identities, causing accuracy to collapse (88% → 28%).
+    #
+    #   Fix: restrict both gallery and probe to the INTERSECTION of identities.
+    #   Gallery-only identities are still enrolled for FAISS/web-UI identification
+    #   but excluded from baseline evaluation until probe images are added.
+    gallery_ids = _get_identity_dirs(args.gallery)
+    probe_ids   = _get_identity_dirs(args.probe)
+
+    gallery_only = gallery_ids - probe_ids   # enrolled but no probe images yet
+    probe_only   = probe_ids   - gallery_ids  # probe but not enrolled
+    common_ids   = gallery_ids & probe_ids
+
+    print(f"[0/5] Identity set check:")
+    print(f"      Gallery  : {sorted(gallery_ids)}")
+    print(f"      Probe    : {sorted(probe_ids)}")
+    print(f"      Common   : {sorted(common_ids)}  ← will be evaluated")
+
+    if gallery_only:
+        print(f"\n  ⚠  Gallery-only (no probe images — EXCLUDED from baseline):")
+        for name in sorted(gallery_only):
+            print(f"       • {name}  →  add images to data/probe/{name}/ to include")
+        print(f"     These identities are still recognised by the web UI (FAISS).")
+
+    if probe_only:
+        print(f"\n  ⚠  Probe-only (not enrolled — EXCLUDED from baseline):")
+        for name in sorted(probe_only):
+            print(f"       • {name}  →  add images to data/gallery/{name}/ to include")
+
+    if len(common_ids) < 2:
+        print("\nERROR: Need at least 2 identities in BOTH gallery and probe to run baseline.")
+        print("Add probe images for your enrolled identities to data/probe/<name>/ and retry.")
+        sys.exit(1)
+
+    # Build per-identity filter string used by load_dataset
+    # We pass allowed_identities so the loader skips excluded dirs.
+    allowed = common_ids
+    print(f"\n  Proceeding with {len(allowed)} identities: {sorted(allowed)}\n")
+
+    # -------------------------------------------------------------------------
     # 1. Initialize Pipeline
     # -------------------------------------------------------------------------
     pipeline = FaceRecognitionPipeline(
@@ -123,12 +177,17 @@ def main():
     )
 
     # -------------------------------------------------------------------------
-    # 2. Load Gallery (Training Set)
+    # 2. Load Gallery (Training Set) — only common identities
     # -------------------------------------------------------------------------
     print(f"[1/5] Loading gallery from: {args.gallery}")
-    X_gallery, y_gallery = pipeline.load_dataset(
+    X_gallery_all, y_gallery_all = pipeline.load_dataset(
         args.gallery, max_per_identity=args.max_gallery
     )
+
+    # Filter to common identities only
+    mask_g = [lbl in allowed for lbl in y_gallery_all]
+    X_gallery = np.array([X_gallery_all[i] for i, m in enumerate(mask_g) if m])
+    y_gallery  = [y_gallery_all[i] for i, m in enumerate(mask_g) if m]
 
     if len(X_gallery) == 0:
         print("ERROR: No gallery features extracted. Check dataset structure and face detector.")
@@ -136,9 +195,10 @@ def main():
         sys.exit(1)
 
     # -------------------------------------------------------------------------
-    # 3. Train (PCA + SVM)
+    # 3. Train (PCA + SVM) — only on common identities
     # -------------------------------------------------------------------------
-    print(f"\n[2/5] Training PCA + SVM on {len(y_gallery)} gallery samples...")
+    print(f"\n[2/5] Training PCA + SVM on {len(y_gallery)} gallery samples "
+          f"({len(set(y_gallery))} identities)...")
     pipeline.train(X_gallery, y_gallery)
     pipeline.save(results_dir / "models")
 
@@ -150,19 +210,62 @@ def main():
     )
 
     # -------------------------------------------------------------------------
-    # 4. Load Probe (Test Set)
+    # 4. Load Probe (Test Set) — auto-balanced, common identities only
     # -------------------------------------------------------------------------
+    # WHY AUTO-BALANCE:
+    #   If one identity has many more probe images than others (e.g. siddhant=64
+    #   vs aditi=9), that identity dominates the Rank-1 accuracy calculation.
+    #   A single identity at 68% of probe means even perfect classification of
+    #   the other 32% can only bring total accuracy to ~32% if that identity is
+    #   systematically hard. Balancing gives a fair view of per-class accuracy.
     print(f"\n[3/5] Loading probe from: {args.probe}")
-    X_probe_raw, y_probe = pipeline.load_dataset(
-        args.probe, max_per_identity=args.max_probe
+
+    # Count available probe images per common identity to compute balance cap
+    probe_counts = {}
+    for name in allowed:
+        id_dir = Path(args.probe) / name
+        if id_dir.exists():
+            imgs = (
+                list(id_dir.glob("*.jpg"))  + list(id_dir.glob("*.jpeg")) +
+                list(id_dir.glob("*.png"))  + list(id_dir.glob("*.bmp"))
+            )
+            probe_counts[name] = len(imgs)
+        else:
+            probe_counts[name] = 0
+
+    # Cap per identity: use the user-specified max_probe if set;
+    # otherwise auto-balance to min(count) capped at 20 to avoid tiny probe sets
+    if args.max_probe:
+        balance_cap = args.max_probe
+        print(f"  Probe cap (user-specified): {balance_cap} images/identity")
+    else:
+        min_count  = min(probe_counts.values()) if probe_counts else 1
+        balance_cap = min(max(min_count, 3), 20)   # at least 3, at most 20
+        print(f"  Probe images per identity: " +
+              ", ".join(f"{n}={c}" for n, c in sorted(probe_counts.items())))
+        print(f"  Auto-balance cap: {balance_cap} images/identity "
+              f"(min={min_count}, capped at 20)")
+
+    X_probe_all, y_probe_all = pipeline.load_dataset(
+        args.probe, max_per_identity=balance_cap
     )
+
+    # Filter to common identities only
+    mask_p = [lbl in allowed for lbl in y_probe_all]
+    X_probe_raw = np.array([X_probe_all[i] for i, m in enumerate(mask_p) if m])
+    y_probe     = [y_probe_all[i] for i, m in enumerate(mask_p) if m]
 
     if len(X_probe_raw) == 0:
         print("ERROR: No probe features extracted.")
         sys.exit(1)
 
+    from collections import Counter
+    probe_dist = Counter(y_probe)
+    print(f"  Final probe distribution: " +
+          ", ".join(f"{n}={c}" for n, c in sorted(probe_dist.items())))
+
     # Transform probe features through PCA
-    X_probe_pca = pipeline.reducer.transform(X_probe_raw)
+    X_probe_pca   = pipeline.reducer.transform(X_probe_raw)
     X_gallery_pca = pipeline.reducer.transform(X_gallery)
 
     # -------------------------------------------------------------------------

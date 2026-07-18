@@ -25,15 +25,16 @@ python -m uvicorn web.backend.main:app --host 0.0.0.0 --port 8000 --reload
 
 ---
 
-## Pages
-
 | URL | Description |
 |-----|-------------|
 | `http://localhost:8000/` | Dashboard |
-| `http://localhost:8000/gallery` | Enroll & manage identities |
+| `http://localhost:8000/gallery` | Enroll identities via images **or video files** (MP4/AVI/MOV/MKV) |
 | `http://localhost:8000/identify` | Upload image → get prediction |
-| `http://localhost:8000/demo` | Live webcam + video processing |
+| `http://localhost:8000/demo` | Live webcam + video processing (adjustable frame skip) |
 | `http://localhost:8000/results` | Experiment plots & metrics |
+| `http://localhost:8000/analytics` | System analytics |
+| `http://localhost:8000/audit` | Audit log |
+| `http://localhost:8000/watchlist` | Alert watchlist |
 | `http://localhost:8000/config` | Pipeline configuration |
 | `http://localhost:8000/docs` | FastAPI auto-generated API docs |
 
@@ -42,10 +43,11 @@ python -m uvicorn web.backend.main:app --host 0.0.0.0 --port 8000 --reload
 ## Prerequisites
 
 - Python environment with `requirements.txt` installed
+- Models downloaded via `python offline_setup.py` (dlib + InsightFace buffalo_l + UI fonts)
+- MongoDB running locally (`mongod`) OR `MONGO_URI` in `.env` pointing to Atlas
 - Trained baseline model in `results/baseline/models/`
   - Run `python experiments/run_baseline.py` first if not present
-- dlib model at `models/shape_predictor_68_face_landmarks.dat`
-- InsightFace ArcFace model (auto-downloaded on first use)
+  - Or skip experiments and just use the web gallery to enroll + retrain
 
 ---
 
@@ -73,7 +75,8 @@ web/
     ├── results.html
     ├── demo.html
     ├── config.html
-    ├── css/style.css
+    ├── css/style.css            ← Self-hosted fonts (@font-face, no CDN after offline_setup.py)
+    ├── fonts/                   ← Downloaded by offline_setup.py (Barlow/IBM Plex/Inter .ttf)
     └── js/
         ├── api.js
         ├── dashboard.js

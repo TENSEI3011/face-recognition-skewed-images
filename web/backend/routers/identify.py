@@ -23,6 +23,7 @@ sys.path.insert(0, str(ROOT))
 
 from web.backend.services import pipeline_service
 from web.backend.services.audit_service import log_event
+from web.backend.services.liveness_service import check_liveness
 from web.backend.routers.watchlist import is_watchlisted
 from web.backend.config import DEFAULT_TOP_K, DEGRADATION_PROFILES, FAISS_THRESHOLD
 
@@ -91,6 +92,72 @@ def _apply_sr(image: np.ndarray, use_sr: bool) -> np.ndarray:
         return upscale(image)
     except Exception:
         return image
+
+
+def _tta_embedding(pipe, face_img: np.ndarray) -> np.ndarray:
+    """
+    Test-Time Augmentation (TTA) for ArcFace embedding.
+
+    WHY: A single probe image gives one embedding. If the image is slightly blurry
+    or at an odd angle (common in UAV footage), the embedding may be off.
+    By extracting embeddings from 5 augmented variants and averaging them,
+    we get a more stable, robust representation of the person.
+
+    Augmentations (mild, safe for face recognition):
+      - Original
+      - Horizontal flip  (catches left/right camera orientation differences)
+      - +10% brightness  (outdoor vs indoor lighting variation)
+      - -10% brightness  (shadow/backlight conditions)
+      - +5 degree rotation (slight camera tilt)
+
+    The averaged embedding is re-normalised to the unit sphere before FAISS search.
+    """
+    if pipe.arc_ext is None:
+        return None
+
+    # Ensure face is 112x112 for ArcFace
+    face = cv2.resize(face_img, (112, 112)) if face_img.shape[:2] != (112, 112) else face_img
+
+    variants = [face]  # original
+
+    # Horizontal flip
+    variants.append(cv2.flip(face, 1))
+
+    # Brightness +10%
+    hsv = cv2.cvtColor(face, cv2.COLOR_BGR2HSV).astype(np.float32)
+    hsv[:, :, 2] = np.clip(hsv[:, :, 2] * 1.10, 0, 255)
+    variants.append(cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR))
+
+    # Brightness -10%
+    hsv2 = cv2.cvtColor(face, cv2.COLOR_BGR2HSV).astype(np.float32)
+    hsv2[:, :, 2] = np.clip(hsv2[:, :, 2] * 0.90, 0, 255)
+    variants.append(cv2.cvtColor(hsv2.astype(np.uint8), cv2.COLOR_HSV2BGR))
+
+    # Slight rotation +5 degrees
+    M = cv2.getRotationMatrix2D((56, 56), 5, 1.0)
+    variants.append(cv2.warpAffine(face, M, (112, 112), flags=cv2.INTER_LINEAR,
+                                   borderMode=cv2.BORDER_REFLECT))
+
+    # Extract embeddings for all variants
+    embeddings = []
+    for v in variants:
+        try:
+            emb = pipe.arc_ext.extract_from_embedding_model(v)
+            n = np.linalg.norm(emb)
+            if n > 1e-6:
+                embeddings.append(emb / n)
+        except Exception:
+            pass
+
+    if not embeddings:
+        return None
+
+    # Average and re-normalise to unit sphere
+    avg = np.mean(embeddings, axis=0).astype(np.float32)
+    n = np.linalg.norm(avg)
+    if n > 1e-6:
+        avg /= n
+    return avg
 
 
 def _draw_result(image: np.ndarray, detection, labels, confs, threshold: float) -> np.ndarray:
@@ -209,25 +276,59 @@ async def identify_face(
     # config.FAISS_THRESHOLD = 0.40 balances FAR vs FRR for these conditions.
     COSINE_THRESHOLD = FAISS_THRESHOLD
 
-    # ── Path 1: FAISS matcher (preferred — handles open-set correctly) ────────
+    # ── Path 1: FAISS matcher with TTA (preferred) ────────────────────────────
     faiss_matcher = pipeline_service.get_faiss_matcher()
     if faiss_matcher is not None and faiss_matcher.is_built:
         try:
-            import numpy as _np
             detection_inner = pipe.detector.detect_largest(image_deg)
             if detection_inner is not None:
                 aligned_q = pipe.aligner.align_from_detection(image_deg, detection_inner)
                 if aligned_q is not None and pipe.arc_ext:
-                    q_feat = pipe.arc_ext.extract(aligned_q)
+
+                    # ── 🛡️ Liveness / Anti-Spoofing Check ────────────────────
+                    # Run BEFORE ArcFace embedding to reject fake faces early.
+                    liveness_result = check_liveness(aligned_q)
+                    if not liveness_result["is_live"]:
+                        log_event("identify", {
+                            "source":         "identify",
+                            "filename":       file.filename or "upload",
+                            "identity":       "SPOOF DETECTED",
+                            "confidence":     liveness_result["score"],
+                            "is_known":       False,
+                            "is_spoof":       True,
+                            "liveness_score": liveness_result["score"],
+                            "degradation":    degradation,
+                        })
+                        return {
+                            "detected":        True,
+                            "identity":        "SPOOF DETECTED",
+                            "confidence":      0.0,
+                            "is_known":        False,
+                            "is_spoof":        True,
+                            "liveness_score":  liveness_result["score"],
+                            "liveness_label":  liveness_result["label"],
+                            "watchlist_hit":   False,
+                            "threshold":       threshold,
+                            "candidates":      [],
+                            "annotated_image": _image_to_b64(image_deg),
+                            "degradation":     degradation,
+                            "use_sr":          use_sr,
+                            "use_enhance":     use_enhance,
+                            "enhance_mode":    enhance_mode,
+                            "message":         "Presentation attack detected. Face rejected.",
+                        }
+
+                    # Use TTA: average embedding over 5 augmented variants
+                    q_feat = _tta_embedding(pipe, aligned_q)
+                    if q_feat is None:
+                        q_feat = pipe.arc_ext.extract(aligned_q)  # fallback: single
                     faiss_label, faiss_sim = faiss_matcher.best_match(q_feat)
-                    # faiss_matcher.best_match() applies FAISS_THRESHOLD internally
-                    # "UNKNOWN" means similarity was below threshold
                     is_known  = (faiss_label != "UNKNOWN")
                     top_label = faiss_label
                     top_conf  = round(faiss_sim, 4)
         except Exception as _e:
-            print(f"[Identify] FAISS matching failed: {_e} — falling back to cosine/SVM")
-            faiss_matcher = None   # trigger fallback below
+            print(f"[Identify] FAISS+TTA matching failed: {_e} — falling back to cosine/SVM")
+            faiss_matcher = None
 
 
     # ── Path 2: Manual cosine gate over stored gallery embeddings (fallback) ──
@@ -316,6 +417,7 @@ async def identify_face(
         "identity":      top_label,
         "confidence":    round(top_conf, 4),
         "is_known":      is_known,
+        "is_spoof":      False,
         "watchlist_hit": watchlist_hit,
         "degradation":   degradation,
         "use_sr":        use_sr,
@@ -328,6 +430,9 @@ async def identify_face(
         "identity":        top_label,
         "confidence":      round(top_conf, 4),
         "is_known":        is_known,
+        "is_spoof":        False,
+        "liveness_score":  1.0,
+        "liveness_label":  "REAL",
         "watchlist_hit":   watchlist_hit,
         "threshold":       threshold,
         "candidates":      candidates,
@@ -347,6 +452,10 @@ async def identify_frame(
     """
     Fast single-frame identification endpoint for WebSocket-like HTTP polling.
     Returns minimal JSON (no annotated image — caller draws on canvas).
+
+    Uses FAISS cosine matching (same as the upload endpoint) so newly enrolled
+    persons are recognised immediately in the live camera feed after retrain.
+    Falls back to SVM identify_from_aligned if FAISS is unavailable.
     """
     status = pipeline_service.get_status()
     if not status["loaded"]:
@@ -364,21 +473,64 @@ async def identify_frame(
     if not detections:
         return {"detected": False, "faces": []}
 
+    faiss_matcher = pipeline_service.get_faiss_matcher()
+    cosine_thresh = FAISS_THRESHOLD
+
     faces_result = []
-    for det in detections[:4]:  # Process max 4 faces per frame
+    for det in detections[:4]:   # Process max 4 faces per frame
         try:
             aligned = pipe.aligner.align_from_detection(image, det)
             if aligned is None:
                 continue
-            labels, confs = pipe.identify_from_aligned(aligned, top_k=1)
-            top_conf  = float(confs[0]) if confs else 0.0
-            top_label = labels[0] if confs and top_conf >= threshold else "UNKNOWN"
+
+            # ── 🛡️ Liveness check (fast, ~3ms) ────────────────────────────
+            liveness_result = check_liveness(aligned)
+            if not liveness_result["is_live"]:
+                x, y, w, h = det["box"]
+                faces_result.append({
+                    "box":           {"x": x, "y": y, "w": w, "h": h},
+                    "identity":      "SPOOF",
+                    "confidence":    liveness_result["score"],
+                    "is_known":      False,
+                    "is_spoof":      True,
+                    "liveness_score": liveness_result["score"],
+                })
+                continue
+
+            top_label = "UNKNOWN"
+            top_conf  = 0.0
+
+            # Primary: FAISS cosine matching (handles new enrollments immediately)
+            if faiss_matcher is not None and faiss_matcher.is_built and pipe.arc_ext:
+                try:
+                    emb = pipe.arc_ext.extract_from_embedding_model(aligned)
+                    n   = np.linalg.norm(emb)
+                    if n > 1e-6:
+                        emb /= n
+                    label, sim = faiss_matcher.best_match(emb)
+                    top_label  = label
+                    top_conf   = float(sim)
+                except Exception:
+                    pass   # fallback below
+
+            # Fallback: SVM pipeline (if FAISS unavailable)
+            if top_label == "UNKNOWN" and top_conf == 0.0:
+                labels, confs = pipe.identify_from_aligned(aligned, top_k=1)
+                svm_conf  = float(confs[0]) if confs else 0.0
+                svm_label = labels[0]       if confs else "UNKNOWN"
+                if svm_conf >= threshold:
+                    top_label = svm_label
+                    top_conf  = svm_conf
+
             x, y, w, h = det["box"]
+            is_known = (top_label != "UNKNOWN") and (top_conf >= cosine_thresh)
             faces_result.append({
-                "box":        {"x": x, "y": y, "w": w, "h": h},
-                "identity":   top_label,
-                "confidence": round(top_conf, 4),
-                "is_known":   top_conf >= threshold,
+                "box":           {"x": x, "y": y, "w": w, "h": h},
+                "identity":      top_label if is_known else "UNKNOWN",
+                "confidence":    round(top_conf, 4),
+                "is_known":      is_known,
+                "is_spoof":      False,
+                "liveness_score": 1.0,
             })
         except Exception:
             pass

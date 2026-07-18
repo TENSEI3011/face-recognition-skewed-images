@@ -31,6 +31,7 @@ sys.path.insert(0, str(ROOT))
 
 from web.backend.services import pipeline_service
 from web.backend.config   import GALLERY_DIR, MODELS_DIR, FAISS_THRESHOLD
+from src.embedding_cache  import get_cached_feature, save_cached_feature, cache_stats
 
 router = APIRouter(prefix="/api/pipeline", tags=["pipeline"])
 
@@ -123,14 +124,37 @@ def _load_gallery_features(pipe, job_id: str):
         from src.augmentation import UAVAugmentor
         aug_mild     = UAVAugmentor(profile="mild",     seed=42)
         aug_moderate = UAVAugmentor(profile="moderate", seed=42)
+        aug_severe   = UAVAugmentor(profile="severe",   seed=42)
+        # Extra augmentors with different seeds for small galleries (imbalance fix)
+        aug_mild_b   = UAVAugmentor(profile="mild",     seed=7)
+        aug_mild_c   = UAVAugmentor(profile="mild",     seed=99)
         use_augment  = True
     except Exception as _ae:
         _log(job_id, f"  [Augmentation] UAVAugmentor unavailable ({_ae}) — skipping augmentation.")
-        aug_mild = aug_moderate = None
+        aug_mild = aug_moderate = aug_severe = None
+        aug_mild_b = aug_mild_c = None
         use_augment = False
 
     X, y = [], []
     identity_dirs = sorted([d for d in GALLERY_DIR.iterdir() if d.is_dir()])
+
+    # Determine active modalities for cache keying
+    pipe = pipeline_service.get_pipeline()
+    active_modalities = list(pipe.modalities) if pipe else ["hog", "lbp", "geometry", "arcface"]
+
+    # Log cache stats before extraction
+    stats = cache_stats(GALLERY_DIR, active_modalities)
+    _log(job_id, f"Cache stats before retrain: {stats['cached']}/{stats['total']} images cached "
+                 f"(hit-rate {stats['hit_rate']}). "
+                 f"Only new/changed images will be re-extracted.")
+
+    # Count images per identity first so we can apply extra augmentation
+    # to identities that have fewer images (e.g. enrolled via short video).
+    img_counts = {}
+    for id_dir in identity_dirs:
+        n = len([f for f in id_dir.iterdir() if f.suffix.lower() in ALLOWED_EXTENSIONS])
+        img_counts[id_dir.name] = n
+    max_count = max(img_counts.values()) if img_counts else 1
 
     for id_dir in identity_dirs:
         identity   = id_dir.name
@@ -141,23 +165,67 @@ def _load_gallery_features(pipe, job_id: str):
         saved   = 0
         skipped = 0
         aug_saved = 0
+        cache_hits = 0
+
+        # Identities with fewer than half the max image count get extra augmentation
+        few_images = len(image_files) < max(8, max_count // 2)
 
         for img_path in image_files:
+            # ── Try embedding cache first (fast path) ─────────────────────────
+            cached_feat = get_cached_feature(img_path, active_modalities)
+            if cached_feat is not None:
+                X.append(cached_feat)
+                y.append(identity)
+                saved += 1
+                cache_hits += 1
+                # Still run augmentation on cached originals so SVM has varied data
+                if use_augment:
+                    img = cv2.imread(str(img_path))
+                    if img is not None:
+                        aug_list = [
+                            (aug_mild,     "mild"),
+                            (aug_moderate, "moderate"),
+                            (aug_severe,   "severe"),
+                        ]
+                        if few_images:
+                            aug_list += [(aug_mild_b, "mild_b"), (aug_mild_c, "mild_c")]
+                        for aug, _ in aug_list:
+                            try:
+                                aug_img  = aug.augment(img)
+                                aug_feat = _extract_feat_from_image(pipe, aug_img)
+                                if aug_feat is not None:
+                                    X.append(aug_feat)
+                                    y.append(identity)
+                                    aug_saved += 1
+                            except Exception:
+                                pass
+                continue   # skip full extraction below
+
+            # ── Cache miss: load image and extract fresh ──────────────────────
             img = cv2.imread(str(img_path))
             if img is None:
                 skipped += 1
                 continue
 
-            # ── Original image ─────────────────────────────────────────────
+            # ── Original image ────────────────────────────────────────────────
             feat = _extract_feat_from_image(pipe, img)
             if feat is not None:
                 X.append(feat)
                 y.append(identity)
                 saved += 1
+                # Save to cache for next retrain
+                save_cached_feature(img_path, active_modalities, feat)
 
-                # ── Augmented variants (only if original succeeded) ────────
+                # ── Augmented variants ────────────────────────────────────────
                 if use_augment:
-                    for aug, profile_name in [(aug_mild, "mild"), (aug_moderate, "moderate")]:
+                    aug_list = [
+                        (aug_mild,     "mild"),
+                        (aug_moderate, "moderate"),
+                        (aug_severe,   "severe"),
+                    ]
+                    if few_images:
+                        aug_list += [(aug_mild_b, "mild_b"), (aug_mild_c, "mild_c")]
+                    for aug, _ in aug_list:
                         try:
                             aug_img  = aug.augment(img)
                             aug_feat = _extract_feat_from_image(pipe, aug_img)
@@ -166,27 +234,36 @@ def _load_gallery_features(pipe, job_id: str):
                                 y.append(identity)
                                 aug_saved += 1
                         except Exception:
-                            pass  # Augmentation failed — not critical
+                            pass
             else:
                 skipped += 1
 
-        aug_info = f" + {aug_saved} augmented" if use_augment else ""
-        _log(job_id, f"  {identity}: {saved} original{aug_info}, {skipped} skipped.")
+        extra_note  = " (extra aug: small gallery)" if few_images and use_augment else ""
+        aug_info    = f" + {aug_saved} augmented" if use_augment else ""
+        cache_note  = f" [{cache_hits} from cache]" if cache_hits else ""
+        _log(job_id, f"  {identity}: {saved} original{aug_info}{cache_note}{extra_note}, {skipped} skipped.")
 
     _log(job_id, f"Total: {len(X)} feature vectors from {len(set(y))} identities "
-                 f"({'with' if use_augment else 'without'} augmentation).")
+                 f"({'with adaptive augmentation' if use_augment else 'without augmentation'}).")
 
     return np.array(X, dtype=np.float32), y
 
 
-def _run_retrain(job_id: str) -> None:
+def _run_retrain(job_id: str, use_grid_search: bool = False) -> None:
     """
     Background worker: re-train PCA + SVM from gallery, save to disk,
     then hot-swap the in-memory pipeline singleton.
+
+    Parameters
+    ----------
+    use_grid_search : bool
+        If True, run GridSearchCV to find optimal SVM C and gamma.
+        Takes ~5 minutes but can improve accuracy by 5-15%.
     """
     with _jobs_lock:
-        _jobs[job_id]["status"]  = "running"
-        _jobs[job_id]["started"] = datetime.utcnow().isoformat()
+        _jobs[job_id]["status"]          = "running"
+        _jobs[job_id]["started"]         = datetime.utcnow().isoformat()
+        _jobs[job_id]["use_grid_search"] = use_grid_search
 
     try:
         _log(job_id, "Retrain started.")
@@ -225,8 +302,14 @@ def _run_retrain(job_id: str) -> None:
 
         # Train PCA + SVM
         _log(job_id, "Fitting PCA reducer...")
+        if use_grid_search:
+            _log(job_id, "GridSearchCV enabled - searching best C/gamma (this may take ~5 min)...")
+            pipe.classifier.use_grid_search = True
+        else:
+            pipe.classifier.use_grid_search = False
         pipe.train(X, y)
-        _log(job_id, "SVM classifier trained successfully.")
+        gs_note = " (GridSearchCV)" if use_grid_search else ""
+        _log(job_id, f"SVM classifier trained successfully{gs_note}.")
 
         # Save to disk
         MODELS_DIR.mkdir(parents=True, exist_ok=True)
@@ -273,9 +356,12 @@ def _run_retrain(job_id: str) -> None:
                         img = cv2.imread(str(img_path))
                         if img is None:
                             continue
-                        # Use pre-crop fast path for small images
+                        # Use pre-crop fast path for small images.
+                        # Video frame thumbnails are saved at max 200px — raise
+                        # threshold to 220 so they use the direct-resize path
+                        # instead of face detection (which fails on tiny faces).
                         h, w = img.shape[:2]
-                        if max(h, w) <= 150:
+                        if max(h, w) <= 220:
                             face = cv2.resize(img, (112, 112))
                         else:
                             det = pipe.detector.detect_largest(img)
@@ -329,10 +415,17 @@ def _run_retrain(job_id: str) -> None:
 # Endpoints
 
 @router.post("/retrain")
-def start_retrain():
+def start_retrain(use_grid_search: bool = False):
     """
     Kick off a background retrain from the current gallery.
     Returns immediately with a job_id. Poll /retrain/status/{job_id} for updates.
+
+    Parameters
+    ----------
+    use_grid_search : bool (query param, default False)
+        Set to true to enable GridSearchCV for SVM hyperparameter tuning.
+        Recommended after finalising your gallery. Takes ~5 extra minutes.
+        Example: POST /api/pipeline/retrain?use_grid_search=true
     """
     # Prevent two retrains running simultaneously
     with _jobs_lock:
@@ -345,13 +438,20 @@ def start_retrain():
         }
 
     job_id = _make_job()
-    t = threading.Thread(target=_run_retrain, args=(job_id,), daemon=True)
+    t = threading.Thread(
+        target=_run_retrain,
+        args=(job_id,),
+        kwargs={"use_grid_search": use_grid_search},
+        daemon=True,
+    )
     t.start()
 
+    suffix = " (GridSearchCV enabled - will take longer)" if use_grid_search else ""
     return {
-        "message":         "Retrain started in the background.",
+        "message":         f"Retrain started{suffix} in the background.",
         "job_id":          job_id,
         "already_running": False,
+        "use_grid_search": use_grid_search,
     }
 
 

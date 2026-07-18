@@ -103,10 +103,27 @@ async function deleteIdentity(name, fromModal = false) {
 const fileInput = document.getElementById('file-input');
 const uploadZone = document.getElementById('upload-zone');
 
+const VIDEO_EXTS = new Set(['.mp4', '.avi', '.mov', '.mkv', '.webm']);
+
+function hasVideoFile(fileList) {
+  return Array.from(fileList).some(f => VIDEO_EXTS.has(f.name.slice(f.name.lastIndexOf('.')).toLowerCase()));
+}
+
 fileInput.addEventListener('change', () => {
-  const n = fileInput.files.length;
+  const files = fileInput.files;
+  const n = files.length;
   document.getElementById('selected-files').textContent =
     n > 0 ? `${n} file${n > 1 ? 's' : ''} selected` : '';
+
+  const videoOpts = document.getElementById('video-options');
+  const icon = document.getElementById('upload-icon');
+  if (hasVideoFile(files)) {
+    videoOpts.classList.remove('hidden');
+    icon.textContent = '🎬';
+  } else {
+    videoOpts.classList.add('hidden');
+    icon.textContent = '📁';
+  }
 });
 
 uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
@@ -115,8 +132,19 @@ uploadZone.addEventListener('drop', e => {
   e.preventDefault();
   uploadZone.classList.remove('drag-over');
   fileInput.files = e.dataTransfer.files;
-  const n = fileInput.files.length;
+  const files = fileInput.files;
+  const n = files.length;
   document.getElementById('selected-files').textContent = n > 0 ? `${n} file${n > 1 ? 's' : ''} selected` : '';
+
+  const videoOpts = document.getElementById('video-options');
+  const icon = document.getElementById('upload-icon');
+  if (hasVideoFile(files)) {
+    videoOpts.classList.remove('hidden');
+    icon.textContent = '🎬';
+  } else {
+    videoOpts.classList.add('hidden');
+    icon.textContent = '📁';
+  }
 });
 
 async function uploadIdentity() {
@@ -124,20 +152,29 @@ async function uploadIdentity() {
   const files = fileInput.files;
 
   if (!name) { showAlert('alert-zone', 'Please enter an identity name.', 'warning'); return; }
-  if (!files.length) { showAlert('alert-zone', 'Please select at least one image.', 'warning'); return; }
+  if (!files.length) { showAlert('alert-zone', 'Please select at least one image or video.', 'warning'); return; }
 
   setLoading('upload-btn', true, 'Uploading…');
   const fd = new FormData();
   fd.append('name', name);
   for (const f of files) fd.append('files', f);
 
+  // Include frame interval if a video is present
+  if (hasVideoFile(files)) {
+    const interval = document.getElementById('frame-interval').value;
+    fd.append('frame_interval', interval);
+  }
+
   try {
     const res = await API.upload('/api/gallery/upload', fd);
-    showAlert('alert-zone', `${res.message}${res.errors.length ? ' Errors: ' + res.errors.join(', ') : ''}`, 'success');
+    const errMsg = res.errors && res.errors.length ? ' Errors: ' + res.errors.join(', ') : '';
+    showAlert('alert-zone', `${res.message}${errMsg}`, 'success');
     document.getElementById('upload-panel').classList.add('hidden');
     document.getElementById('identity-name').value = '';
     fileInput.value = '';
     document.getElementById('selected-files').textContent = '';
+    document.getElementById('video-options').classList.add('hidden');
+    document.getElementById('upload-icon').textContent = '📁';
     loadGallery();
   } catch (e) {
     showAlert('alert-zone', `Upload failed: ${e.message}`, 'danger');

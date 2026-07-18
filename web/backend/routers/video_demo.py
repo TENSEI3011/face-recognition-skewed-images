@@ -31,6 +31,7 @@ sys.path.insert(0, str(ROOT))
 
 from web.backend.services import pipeline_service
 from web.backend.services.temporal_service import TemporalVoter
+from web.backend.services.liveness_service import check_liveness
 from web.backend.config import DEFAULT_TOP_K, FAISS_THRESHOLD
 
 router = APIRouter(tags=["demo"])
@@ -326,6 +327,21 @@ def _predict_faces(
             if use_blur_gate and _blur_score(aligned) < MIN_BLUR_SCORE:
                 continue
 
+            # ── 🛡️ Liveness / Anti-Spoofing Check ────────────────────────
+            # Runs BEFORE embedding extraction to reject printed photos and
+            # screen replays without wasting ArcFace inference time.
+            liveness_result = check_liveness(aligned)
+            if not liveness_result["is_live"]:
+                results.append({
+                    "box":           {"x": max(0, x), "y": max(0, y), "w": w, "h": h},
+                    "identity":      "⚠️ SPOOF",
+                    "confidence":    liveness_result["score"],
+                    "is_known":      False,
+                    "is_spoof":      True,
+                    "liveness_score": liveness_result["score"],
+                })
+                continue
+
             # ── Recognition ───────────────────────────────────────────────────
             if use_faiss and pipe.arc_ext:
                 emb = pipe.arc_ext.extract(aligned)
@@ -349,10 +365,12 @@ def _predict_faces(
                 identity_known = (top_conf >= threshold)
 
             results.append({
-                "box":        {"x": max(0, x), "y": max(0, y), "w": w, "h": h},
-                "identity":   top_label,
-                "confidence": round(top_conf, 4),
-                "is_known":   identity_known,
+                "box":           {"x": max(0, x), "y": max(0, y), "w": w, "h": h},
+                "identity":      top_label,
+                "confidence":    round(top_conf, 4),
+                "is_known":      identity_known,
+                "is_spoof":      False,
+                "liveness_score": 1.0,
             })
         except Exception:
             pass
@@ -483,7 +501,7 @@ async def websocket_stream(websocket: WebSocket):
 async def process_video(
     file:          UploadFile = File(...),
     threshold:     float      = Form(0.35),
-    process_every: int        = Form(3),
+    process_every: int        = Form(8),
 ):
     """
     Upload a video -> run face recognition -> return annotated video.
@@ -533,11 +551,16 @@ async def process_video(
             raise RuntimeError("Could not initialise video writer.")
 
         voter = TemporalVoter(
-            window=10,       # 10-frame rolling window (was 15)
-            min_votes=5,     # 5/10 majority needed (was 8/15) — faster confirmation
+            window=5,        # 5-frame rolling window (was 10) — confirms faster
+            min_votes=3,     # 3/5 majority needed (was 5/10) — UNKNOWN gone after ~3 good frames
             min_confidence=0.35,
             cooldown_s=0.0,
         )
+
+        # Fast-confirm threshold: if a single frame has cosine score this high,
+        # skip the voter and immediately confirm — eliminates UNKNOWN-at-start
+        # for clear, frontal videos of enrolled people.
+        FAST_CONFIRM_CONFIDENCE = 0.60
 
         frame_idx       = 0
         processed       = 0
@@ -556,14 +579,10 @@ async def process_video(
                 if _blur_score(frame) < MIN_BLUR_SCORE:
                     quality_skipped += 1
                 else:
-                    # Use full resolution for video — do NOT downscale.
-                    # SCRFD uses an internal 640x640 detection grid. If we pass a
-                    # 1920x1080 frame downscaled to 1280px, faces that are only
-                    # 20-30px in the original become ~10px on the internal grid
-                    # and are missed entirely. max_side=0 means full resolution.
                     raw_faces = _predict_faces(
                         pipe, frame, threshold,
-                        max_side=0,          # 0 = use full resolution, no downscaling
+                        max_side=720,        # 720px: fastest preset that still
+                                             # detects faces down to ~15px at source.
                         use_blur_gate=False,
                     )
                     processed += 1
@@ -571,19 +590,26 @@ async def process_video(
                     if raw_faces:
                         faces_detected += len(raw_faces)
                         best = max(raw_faces, key=lambda f: f.get("confidence", 0.0))
-                        vote = voter.update(
-                            label=best.get("identity", "UNKNOWN"),
-                            confidence=best.get("confidence", 0.0),
-                        )
-                        if vote["confirmed"] and vote["is_known"]:
-                            confirmed_id    = vote["identity"]
+                        best_label = best.get("identity", "UNKNOWN")
+                        best_conf  = best.get("confidence", 0.0)
+
+                        # Fast-confirm: skip voter for high-confidence frames
+                        if (best_label != "UNKNOWN" and
+                                best_conf >= FAST_CONFIRM_CONFIDENCE):
+                            confirmed_id    = best_label
                             confirmed_known = True
+                            voter.update(label=best_label, confidence=best_conf)
                         else:
-                            # Not confirmed yet OR person is unknown.
-                            # Show "UNKNOWN" — not "PENDING" (PENDING is confusing to users).
-                            # PENDING means: voter window not full yet, just say UNKNOWN.
-                            confirmed_id    = "UNKNOWN"
-                            confirmed_known = False
+                            vote = voter.update(
+                                label=best_label,
+                                confidence=best_conf,
+                            )
+                            if vote["confirmed"] and vote["is_known"]:
+                                confirmed_id    = vote["identity"]
+                                confirmed_known = True
+                            else:
+                                confirmed_id    = "UNKNOWN"
+                                confirmed_known = False
 
                         last_faces = []
                         for f in raw_faces:

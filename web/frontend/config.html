@@ -98,7 +98,7 @@
         </div>
 
         <!-- ── SVM Settings ──────────────────────────────────── -->
-        <div class="card">
+        <div class="card mb-4">
           <div class="card-title"><span class="icon">📐</span> SVM Classifier</div>
 
           <div class="form-group">
@@ -152,9 +152,47 @@
           <div id="config-summary"><p class="text-sm text-muted">Loading…</p></div>
         </div>
       </div>
-    </div>
-  </div>
-</div>
+    </div><!-- /grid-2 -->
+
+    <!-- ── Anti-Spoofing / Liveness Detection ─────────────────────── -->
+    <div class="card mt-4">
+      <div class="card-title"><span class="icon">🛡️</span> Anti-Spoofing / Liveness Detection</div>
+      <div class="alert alert-info mb-3" style="font-size:.78rem">
+        <strong>What this does:</strong> Before matching any face, the system checks whether it is a
+        <em>real living face</em> or a <em>presentation attack</em> (printed photo, phone screen, video
+        replay, or mask). Faces that fail the liveness check are immediately rejected as
+        <strong>SPOOF DETECTED</strong> without running identity matching.
+        &nbsp; — &nbsp;
+        Uses passive texture + frequency analysis. No extra model download needed. Runs in ~3ms.
+      </div>
+
+      <div class="grid-2">
+        <div>
+          <div class="toggle-row">
+            <div>
+              <div class="toggle-label">Enable Liveness Detection</div>
+              <div class="toggle-sub">Reject printed photos, screens, and video replays before identification</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="liveness-enabled" checked>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div>
+          <div class="form-group">
+            <label class="form-label">Sensitivity: <span id="liveness-val">50%</span></label>
+            <input type="range" id="liveness-threshold" min="30" max="70" value="50"
+              oninput="document.getElementById('liveness-val').textContent = this.value + '%'">
+            <div class="text-sm text-muted mt-1">
+              Higher = stricter (fewer false-passes). Lower = more lenient (better for degraded/outdoor video).
+              Recommended: <strong>50%</strong>. Raise to 60% for high-security checkpoints.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div><!-- /anti-spoofing card -->
 
 <script src="/js/api.js"></script>
 <script src="/js/config.js"></script>
