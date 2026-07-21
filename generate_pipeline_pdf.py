@@ -287,8 +287,8 @@ pdf.pipeline_step(1, "FACE DETECTION  (SCRFD Detector)",
     "Find where faces are in the image. Draw a box around each face. Upscale tiny faces (<48px) with bicubic interpolation.", BLUE)
 pdf.pipeline_step(2, "FACE ALIGNMENT  (InsightFace 5-landmark)",
     "Straighten and normalise each face to a fixed 112x112 pixel size using affine transform.", (28,120,150))
-pdf.pipeline_step(3, "LIVENESS / ANTI-SPOOFING CHECK  [NEW]",
-    "Reject printed photos and screen replays using LBP texture entropy + FFT + gradient coherence. ~3ms CPU. No model needed.", RED)
+pdf.pipeline_step(3, "LIVENESS / ANTI-SPOOFING CHECK  [UPDATED]",
+    "Passive check: 6-signal fusion (LBP, FFT, gradient, colour, specular, chroma) in ~3ms. Active blink challenge for webcam mode.", RED)
 pdf.pipeline_step(4, "FEATURE EXTRACTION  (HOG + LBP + Geometry + ArcFace + TTA)",
     "Describe the face using 4 mathematical modalities. TTA averages 5 variants for +3-8% accuracy.", GREEN)
 pdf.pipeline_step(5, "FEATURE FUSION + PCA (99% variance)",
@@ -593,7 +593,7 @@ pdf.upgrade_box(
 # =========================================================================
 pdf.add_page()
 
-pdf.section("STEP 3 (NEW):", "Liveness / Anti-Spoofing - Rejecting Fake Faces", RED)
+pdf.section("STEP 3 (UPDATED):", "Liveness / Anti-Spoofing - Rejecting Fake Faces", RED)
 pdf.body(
     "Before spending any time on feature extraction or matching, the system first checks "
     "if the face in the image belongs to a LIVE PERSON or a FAKE (e.g., a printed photo held up, "
@@ -605,15 +605,15 @@ pdf.analogy("Anti-Spoofing is Like Checking if a Coin is Real or Counterfeit",
     "  - Feeling the texture (a fake coin feels wrong)\n"
     "  - Looking at the edge patterns (different from a genuine coin)\n"
     "  - Checking the reflections (plastic or paper reflects differently)\n\n"
-    "Our liveness detector uses three similar 'feel tests' for faces:\n"
-    "  1. TEXTURE: Real skin has complex micro-patterns (pores, hair follicles). "
-    "A printed photo is much more uniform.\n"
-    "  2. FREQUENCY: A real face has natural high-frequency detail. A screen or print "
-    "has a different frequency signature (screen pixels, print dots).\n"
-    "  3. GRADIENTS: Real faces have coherent, natural gradient patterns. "
-    "Printed/screen faces have a different coherence structure.")
+    "Our passive liveness detector uses SIX such tests fused into one score:\n"
+    "  1. LBP TEXTURE ENTROPY: Real skin has complex micro-patterns. A print is smoother.\n"
+    "  2. FFT FREQUENCY PEAK: Real faces have a natural frequency distribution. Screens/prints have pixel/dot grids.\n"
+    "  3. GRADIENT COHERENCE: Real faces have coherent brightness changes. Printed faces do not.\n"
+    "  4. COLOUR HISTOGRAM: Real skin has a natural HSV colour distribution. Screens can shift this.\n"
+    "  5. SPECULAR REFLECTION: Screens have characteristic bright specular spots. Real faces do not.\n"
+    "  6. CHROMA NOISE: Printed faces have different chroma (colour) noise compared to real faces.")
 
-pdf.sub("What the Three Tests Measure")
+pdf.sub("What the Six Tests Measure")
 pdf.body("Test 1 - LBP Texture Entropy:")
 pdf.bullet("Divides the face into regions and measures how 'complex' the texture is")
 pdf.bullet("Real skin: high complexity (0.7-0.9 on a 0-1 scale)")
@@ -629,26 +629,50 @@ pdf.bullet("Measures how smoothly the brightness changes across the face")
 pdf.bullet("Real faces: natural, coherent gradient flow")
 pdf.bullet("Printed photo: introduces artificial edges from the paper texture")
 pdf.ln(2)
+pdf.body("Tests 4-6 - Colour, Specular & Chroma (NEW):")
+pdf.bullet("Colour histogram: checks HSV skin-tone distribution (screens shift colours)")
+pdf.bullet("Specular reflection: screens reflect bright spots in characteristic ways real faces do not")
+pdf.bullet("Chroma noise: the fine colour noise pattern differs between real skin and printed/screen faces")
+pdf.ln(2)
 
-pdf.example("Liveness Detection in Action",
+pdf.example("Passive Liveness Detection in Action",
     "Scenario: Someone holds up a photo of Siddhant on their phone in front of the camera\n\n"
-    "Liveness score: 0.28 (below 0.50 threshold)\n"
+    "Liveness score: 0.28 (below 0.45 threshold)\n"
     "Decision: SPOOF DETECTED - face labelled as 'SPOOF' with red box\n"
     "ArcFace embedding: NOT computed (saves time)\n"
     "Gallery match: NOT attempted\n\n"
     "Scenario: Real Siddhant stands in front of the camera\n"
-    "Liveness score: 0.79 (above 0.50 threshold)\n"
+    "Liveness score: 0.79 (above 0.45 threshold)\n"
     "Decision: LIVE FACE - proceed to feature extraction and matching")
 
-pdf.why_box("Why Passive (Not Active) Liveness?",
-    "Active liveness requires the user to blink, nod, or turn their head on command. "
-    "This works on a login screen but is impossible for UAV surveillance where "
-    "the camera is looking down at unsuspecting people from 20-30 metres up.\n\n"
-    "Passive liveness works silently in the background on a single still frame. "
-    "It does not require any cooperation from the person being identified. "
-    "This is the only practical approach for UAV surveillance scenarios.\n\n"
-    "Limitation: Passive liveness is not designed for sophisticated 3D silicone masks. "
-    "For highest-security scenarios, active liveness would need to be added.")
+pdf.sub("Active Blink Challenge (Webcam / Live Mode Only) [NEW]")
+pdf.body(
+    "For the live webcam mode, the system adds a second, active liveness layer: "
+    "a blink challenge. The user is asked to blink within 7 seconds. "
+    "A static printed photo cannot blink. A video replay cannot blink at a random, "
+    "unpredictable moment. Only a live person can pass.\n\n"
+    "Technical method: Eye Aspect Ratio (EAR) by Soukupova and Cech (2016).\n"
+    "  EAR = (|p2-p6| + |p3-p5|) / (2 x |p1-p4|)\n"
+    "  where p1...p6 are the six dlib 68-point eye landmark coordinates.\n"
+    "  Open eye: EAR ~ 0.30-0.40.  Blink: EAR drops below 0.25 for 2+ frames.")
+
+pdf.example("Blink Challenge Flow",
+    "1. Webcam session starts. Frontend receives a session ID from /api/liveness/blink/new.\n"
+    "2. Each webcam frame is sent to /api/liveness/blink/frame. Server returns EAR + blink count.\n"
+    "3. If blink_count >= 1 within 7 seconds: challenge PASSED -> proceed to face matching.\n"
+    "4. If 7 seconds elapse with 0 blinks: challenge FAILED -> session rejected.\n"
+    "5. If dlib is unavailable (dlib-bin not installed): blink challenge is auto-passed\n"
+    "   and passive 6-signal check continues as the only liveness gate.")
+
+pdf.why_box("Why Two Layers? Passive + Active?",
+    "Passive liveness (6-signal) runs silently on any image - photo uploads, video frames, UAV footage.\n"
+    "It does NOT require cooperation from the subject. Perfect for drone surveillance.\n\n"
+    "Active blink challenge is for the webcam login mode only, where a known person "
+    "is deliberately trying to authenticate. It defeats even high-quality phone screen replays "
+    "and photos that might fool passive texture analysis.\n\n"
+    "Together: the system gets the best of both worlds. The passive check always runs "
+    "(no user action needed). The active check adds a hard cryptographic-like gate "
+    "for live authentication sessions.")
 
 pdf.sub("Embedding Cache [NEW] - Faster Retraining")
 pdf.body(
@@ -887,7 +911,7 @@ pdf.sub("The 7 Steps in Simple Words:")
 steps_summary = [
     ("1. DETECT",    "SCRFD scans every frame and draws a box around each face. Tiny faces are upscaled."),
     ("2. ALIGN",     "Each face box is rotated, scaled, and cropped to a standard 112x112 pixel image."),
-    ("3. ANTI-SPOOF","Passive liveness check rejects printed photos and screen replays in ~3ms."),
+    ("3. ANTI-SPOOF","6-signal passive liveness rejects printed photos and screens in ~3ms. Webcam: blink challenge."),
     ("4. DESCRIBE",  "4 algorithms describe the face: HOG (shape), LBP (texture), Geometry (proportions), ArcFace+TTA."),
     ("5. COMBINE",   "All 4 descriptions are merged into one number vector, then PCA (99%) compresses it."),
     ("6. MATCH",     "FAISS compares the 512-D ArcFace vector against all enrolled people and finds the best match."),
@@ -911,8 +935,10 @@ pdf.table(
     rows=[
         ["SCRFD Detector", "MTCNN Detector",
          "3x faster, detects small/tilted faces at UAV altitude"],
-        ["Passive Liveness [NEW]", "No spoofing protection",
-         "Rejects printed photo / screen replay attacks in ~3ms, no model download"],
+        ["Passive Liveness (6-signal) [UPDATED]", "3-signal passive check",
+         "Added colour, specular, chroma signals; threshold lowered to 0.45"],
+        ["Active Blink Challenge [NEW]", "No active check",
+         "EAR blink detection for webcam mode defeats screen replay attacks"],
         ["FAISS + Threshold", "SVM alone",
          "Enables UNKNOWN rejection - SVM always guesses someone"],
         ["ArcFace + TTA [NEW]", "ArcFace single embedding",
@@ -942,7 +968,9 @@ pdf.table(
         ["3/5",   "Temporal voter threshold (video)",   "3 frames out of 5-frame window; fast-confirm at score >= 0.60"],
         ["6/10",  "Temporal voter threshold (webcam)",  "6 frames out of 10-frame window for live stream"],
         ["99%",   "PCA variance retained [NEW]",        "Raised from 95% for +2-5% accuracy improvement"],
-        ["0.50",  "Liveness threshold [NEW]",           "Faces scoring below 0.50 on LBP+FFT+Gradient are rejected as spoof"],
+        ["0.45",  "Liveness threshold [UPDATED]",       "6-signal passive: lowered from 0.50; blink adds hard active gate"],
+        ["0.25",  "Blink EAR threshold [NEW]",          "Eye Aspect Ratio below 0.25 for 2+ frames = detected blink"],
+        ["7.0s",  "Blink challenge timeout [NEW]",      "User has 7 seconds to blink; failure = session rejected"],
         ["5",     "TTA variants [NEW]",                 "5-variant embedding average gives +3-8% accuracy on UAV images"],
         ["48px",  "Tiny face upscale threshold",        "Faces below 48px get upscaled before ArcFace for better embedding"],
         ["~2s",   "Retrain time with cache [NEW]",      "MD5 hash cache: was 15s, now ~2s after first run (10x faster)"],
