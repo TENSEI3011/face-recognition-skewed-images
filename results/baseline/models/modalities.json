@@ -1,0 +1,8 @@
+{
+  "modalities": [
+    "hog",
+    "lbp",
+    "geometry",
+    "arcface"
+  ]
+}
