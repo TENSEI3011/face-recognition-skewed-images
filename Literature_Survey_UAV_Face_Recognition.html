@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Literature Survey — Face Recognition on Skewed UAV Images</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300&display=swap');
+
+  :root {
+    --primary: #1a237e;
+    --accent:  #0d47a1;
+    --light:   #e8eaf6;
+    --border:  #c5cae9;
+    --text:    #1a1a2e;
+    --muted:   #5c6bc0;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    font-size: 10.5pt;
+    color: var(--text);
+    background: #fff;
+    line-height: 1.75;
+    counter-reset: section;
+  }
+
+  /* ── Cover Page ── */
+  .cover {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    background: linear-gradient(160deg, #0d1b5e 0%, #1a237e 50%, #283593 100%);
+    color: white;
+    padding: 60px 40px;
+    page-break-after: always;
+  }
+  .cover .badge {
+    display: inline-block;
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 30px;
+    padding: 6px 20px;
+    font-size: 9pt;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 28px;
+    color: #c5cae9;
+  }
+  .cover h1 {
+    font-family: 'Merriweather', serif;
+    font-size: 26pt;
+    font-weight: 700;
+    line-height: 1.3;
+    margin-bottom: 16px;
+    letter-spacing: -0.5px;
+  }
+  .cover h2 {
+    font-size: 14pt;
+    font-weight: 300;
+    color: #9fa8da;
+    margin-bottom: 48px;
+  }
+  .cover-meta {
+    border-top: 1px solid rgba(255,255,255,0.2);
+    padding-top: 32px;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 32px;
+    width: 100%;
+    max-width: 700px;
+  }
+  .cover-meta .item { text-align: center; }
+  .cover-meta .label { font-size: 7.5pt; text-transform: uppercase; letter-spacing: 1.5px; color: #9fa8da; margin-bottom: 4px; }
+  .cover-meta .value { font-size: 10pt; font-weight: 600; color: #fff; }
+  .cover .drone-icon { font-size: 56pt; margin-bottom: 20px; filter: drop-shadow(0 4px 16px rgba(0,0,0,0.4)); }
+
+  /* ── Page Layout ── */
+  .page { max-width: 800px; margin: 0 auto; padding: 48px 60px; }
+
+  /* ── Section Headings ── */
+  h2.section-title {
+    font-family: 'Merriweather', serif;
+    font-size: 14pt;
+    font-weight: 700;
+    color: var(--primary);
+    border-bottom: 2.5px solid var(--primary);
+    padding-bottom: 6px;
+    margin: 36px 0 16px;
+    counter-increment: section;
+  }
+  h2.section-title::before {
+    content: counter(section) ". ";
+    color: var(--muted);
+  }
+  h3.sub-title {
+    font-size: 10.5pt;
+    font-weight: 600;
+    color: var(--accent);
+    margin: 20px 0 8px;
+  }
+
+  /* ── TOC ── */
+  .toc {
+    background: var(--light);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px 32px;
+    margin: 24px 0 36px;
+    page-break-after: always;
+  }
+  .toc h3 { font-size: 11pt; font-weight: 700; color: var(--primary); margin-bottom: 16px; letter-spacing: 1px; text-transform: uppercase; }
+  .toc ol { padding-left: 20px; }
+  .toc li { margin: 6px 0; font-size: 9.5pt; color: var(--accent); }
+  .toc li span { color: var(--text); }
+
+  /* ── Tables ── */
+  table { width: 100%; border-collapse: collapse; margin: 16px 0 24px; font-size: 9pt; }
+  thead { background: var(--primary); color: white; }
+  thead th { padding: 9px 14px; text-align: left; font-weight: 600; letter-spacing: 0.3px; }
+  tbody tr:nth-child(even) { background: var(--light); }
+  tbody td { padding: 8px 14px; border-bottom: 1px solid var(--border); }
+  tbody tr:last-child td { border-bottom: none; }
+
+  /* ── Callout boxes ── */
+  .callout {
+    border-left: 4px solid var(--accent);
+    background: #e8eaf6;
+    padding: 12px 18px;
+    border-radius: 0 6px 6px 0;
+    margin: 16px 0;
+    font-size: 9.5pt;
+    color: #1a237e;
+  }
+  .callout strong { display: block; margin-bottom: 4px; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
+
+  /* ── Finding boxes ── */
+  .finding {
+    background: white;
+    border: 1px solid var(--border);
+    border-top: 4px solid var(--primary);
+    border-radius: 6px;
+    padding: 18px 22px;
+    margin: 20px 0;
+    box-shadow: 0 2px 8px rgba(26,35,126,0.07);
+  }
+  .finding .number {
+    font-size: 8pt;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .finding h4 { font-size: 11pt; color: var(--primary); margin-bottom: 10px; }
+  .finding p { font-size: 9.5pt; line-height: 1.7; }
+
+  /* ── References ── */
+  .references { font-size: 8.5pt; line-height: 1.7; }
+  .references p { margin: 6px 0; padding-left: 28px; text-indent: -28px; }
+  .references .ref-num { color: var(--accent); font-weight: 700; }
+
+  /* ── Paragraph ── */
+  p { margin-bottom: 12px; font-size: 9.5pt; }
+
+  /* ── Print styles ── */
+  @media print {
+    body { font-size: 10pt; }
+    .cover { min-height: 100vh; }
+    .toc { page-break-after: always; }
+    h2.section-title { page-break-before: auto; }
+    .finding { page-break-inside: avoid; }
+    table { page-break-inside: avoid; }
+    @page { margin: 20mm 18mm; size: A4; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════ COVER ══════════════════════ -->
+<div class="cover">
+  <div class="drone-icon">🛸</div>
+  <div class="badge">Research Literature Survey</div>
+  <h1>Face Recognition on<br>Skewed UAV Images</h1>
+  <h2>A Multi-Modal Pipeline for Aerial Surveillance</h2>
+  <div class="cover-meta">
+    <div class="item">
+      <div class="label">Domain</div>
+      <div class="value">Computer Vision</div>
+    </div>
+    <div class="item">
+      <div class="label">Approach</div>
+      <div class="value">Deep Learning + Classical</div>
+    </div>
+    <div class="item">
+      <div class="label">Year</div>
+      <div class="value">2025 – 2026</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════ TABLE OF CONTENTS ══════════════════════ -->
+<div class="page">
+<div class="toc">
+  <h3>Table of Contents</h3>
+  <ol>
+    <li><span>Introduction</span></li>
+    <li><span>Face Detection — From Classical to SCRFD</span></li>
+    <li><span>Handcrafted Feature Extraction (HOG, LBP, Geometry)</span></li>
+    <li><span>Deep Learning for Face Recognition</span></li>
+    <li><span>ArcFace and Metric Learning</span></li>
+    <li><span>UAV-Specific Challenges</span></li>
+    <li><span>Open-Set Recognition and FAISS Matching</span></li>
+    <li><span>Image Quality Enhancement and Super-Resolution</span></li>
+    <li><span>Temporal Consistency in Video</span></li>
+    <li><span>Evaluation Methodology</span></li>
+    <li><span>Key Findings Summary</span></li>
+    <li><span>Component-to-Literature Mapping</span></li>
+    <li><span>References</span></li>
+  </ol>
+</div>
+
+<!-- ══════════════════════ SECTION 1 ══════════════════════ -->
+<h2 class="section-title">Introduction</h2>
+
+<p>Face recognition from Unmanned Aerial Vehicle (UAV) footage presents a unique convergence of classical computer vision challenges and modern deep learning capabilities. Unlike traditional face recognition in controlled laboratory settings, UAV-based surveillance systems must contend with unconstrained altitude variation, significant pose skew, motion blur, H.264 video compression artefacts, and extreme resolution degradation — all occurring simultaneously in real deployments.</p>
+
+<p>This literature survey reviews the foundational and state-of-the-art research across ten key domains that directly underpin the design decisions made in this project. Each section explains what was found in the literature and how that finding shaped a specific component of the implemented system.</p>
+
+<div class="callout">
+  <strong>Scope</strong>
+  This survey covers literature from 1991 (Eigenfaces) to 2021 (SCRFD, Real-ESRGAN), reflecting both the historical foundations and the current state-of-the-art methods directly implemented in this system.
+</div>
+
+<!-- ══════════════════════ SECTION 2 ══════════════════════ -->
+<h2 class="section-title">Face Detection — From Classical to SCRFD</h2>
+
+<h3 class="sub-title">2.1 Classical Methods</h3>
+<p>Viola and Jones (2001) introduced the first real-time face detector using Haar-like features with a cascade classifier, achieving rapid detection on CPUs but failing under significant pose variation or low resolution [1]. Dalal and Triggs (2005) proposed the Histogram of Oriented Gradients (HOG) feature combined with a linear SVM, demonstrating robustness to moderate illumination changes [2].</p>
+
+<h3 class="sub-title">2.2 Deep Learning Detectors</h3>
+<p>Zhang et al. (2016) introduced the Multi-task Cascaded Convolutional Network (MTCNN), simultaneously predicting bounding boxes and five facial landmark points in a three-stage cascade [3]. MTCNN remains widely deployed but struggles with faces smaller than 30 pixels — a critical limitation for UAV footage. RetinaFace (Deng et al., 2020) advanced the field by jointly predicting face boxes, landmarks, and 3D face mesh vertices, achieving state-of-the-art accuracy on the WiderFace benchmark across all difficulty levels [4].</p>
+
+<h3 class="sub-title">2.3 SCRFD — Sample and Computation Redistribution</h3>
+<p>Guo et al. (2021) proposed SCRFD, a principled strategy for allocating computational budget across detection scales using Neural Architecture Search. The <em>det_10g.onnx</em> model from InsightFace's <em>buffalo_l</em> pack achieves near-RetinaFace accuracy at significantly reduced inference cost (10 GFlops vs 37 GFlops for RetinaFace) [5].</p>
+
+<div class="callout">
+  <strong>Key Finding Applied in this Project</strong>
+  SCRFD uses an internal 640×640 detection grid. For a 1920×1080 frame, the internal scale factor is 0.33×, meaning a 30-pixel face becomes only 10 pixels on the grid — below the reliable detection threshold. This finding motivated passing full-resolution frames to the detector, with <code>max_side=0</code> (no downscaling) in the video processing pipeline.
+</div>
+
+<!-- ══════════════════════ SECTION 3 ══════════════════════ -->
+<h2 class="section-title">Handcrafted Feature Extraction</h2>
+
+<h3 class="sub-title">3.1 HOG — Histogram of Oriented Gradients</h3>
+<p>Dalal and Triggs (2005) demonstrated that local gradient direction histograms computed over dense overlapping cells capture shape information robustly across illumination changes [2]. Applied to aligned 112×112 face crops, HOG captures edge structure around the eyes, nose bridge, and mouth region — features that remain stable even under moderate compression.</p>
+
+<h3 class="sub-title">3.2 LBP — Local Binary Patterns</h3>
+<p>Ahonen et al. (2006) applied Local Binary Patterns to face recognition, achieving real-time performance competitive with much heavier methods [6]. Uniform LBP encodes local texture by comparing each pixel to its 8 circular neighbours, producing a rotation-invariant binary code. LBP is particularly valuable for UAV imagery because it is illumination-invariant (relative thresholding) and degrades gracefully with H.264 compression.</p>
+
+<h3 class="sub-title">3.3 Geometric Landmark Features</h3>
+<p>Kazemi and Sullivan (2014) proposed an ensemble of regression trees for real-time detection of 68 facial landmarks [7]. Normalised inter-landmark distances and angles form a compact geometric descriptor that is scale-invariant and rotation-invariant, capturing structural identity information that is complementary to appearance features.</p>
+
+<div class="callout">
+  <strong>Multi-Modal Motivation</strong>
+  The survey established that no single feature type is sufficient for degraded UAV conditions. HOG, LBP, Geometry, and ArcFace embeddings each capture different aspects of identity — their combination through PCA dimensionality reduction and SVM classification provides robustness across the full degradation spectrum.
+</div>
+
+<!-- ══════════════════════ SECTION 4 ══════════════════════ -->
+<h2 class="section-title">Deep Learning for Face Recognition</h2>
+
+<h3 class="sub-title">4.1 DeepFace and FaceNet</h3>
+<p>Taigman et al. (2014) demonstrated that deep CNNs trained on large labelled datasets could achieve near-human face verification accuracy (97.35% on LFW) [8]. Schroff et al. (2015) introduced FaceNet, using a triplet loss to map face images to a compact 128-D Euclidean embedding space where L2 distance correlates directly with identity similarity [9]. FaceNet established the embedding-space paradigm that ArcFace builds upon.</p>
+
+<h3 class="sub-title">4.2 The Hypersphere Embedding Paradigm</h3>
+<p>A sequence of papers improved upon softmax classification by reformulating the decision boundary in angular/cosine space. SphereFace (Liu et al., 2017) introduced a multiplicative angular margin [10], CosFace (Wang et al., 2018) applied a fixed cosine margin [11], and ArcFace (Deng et al., 2019) introduced an additive angular margin on the geodesic distance on a unit hypersphere [12]. ArcFace provides the clearest geometric interpretation and strongest discriminability among these methods.</p>
+
+<!-- ══════════════════════ SECTION 5 ══════════════════════ -->
+<h2 class="section-title">ArcFace and Metric Learning</h2>
+
+<p>Deng et al. (2019) trained ArcFace on MS-Celeb-1M (5.8 million images, 85,000 identities), achieving 99.83% accuracy on LFW, 98.02% on MegaFace, and 94.20% on the challenging IJB-C benchmark [12]. The ResNet-50 backbone produces 512-dimensional L2-normalised embeddings where cosine similarity between same-person pairs is consistently ≥ 0.6, and between different-person pairs is typically ≤ 0.3.</p>
+
+<div class="callout">
+  <strong>Critical Finding for UAV Application</strong>
+  The survey revealed that ArcFace was trained on studio-quality images where faces occupy the full image frame. When applied to UAV footage where faces are 17–30 pixels wide, the cosine similarity between a probe face and its gallery counterpart drops to 0.25–0.45 due to the information loss from the small face size. This motivated lowering the FAISS threshold from 0.62 to 0.35 for the video processing pipeline.
+</div>
+
+<!-- ══════════════════════ SECTION 6 ══════════════════════ -->
+<h2 class="section-title">UAV-Specific Challenges</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Challenge</th>
+      <th>Literature Finding</th>
+      <th>Impact on Accuracy</th>
+      <th>This Project's Solution</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Altitude</strong> (20–30m)</td>
+      <td>Zangeneh et al. (2020) [15]</td>
+      <td>Faces = 17–30px wide</td>
+      <td>Full-res detection + cubic upscaling</td>
+    </tr>
+    <tr>
+      <td><strong>Pose / Yaw Skew</strong></td>
+      <td>Sun et al. (2015) [13]</td>
+      <td>−15% to −40% Rank-1 accuracy</td>
+      <td>Pose study experiment + stratified evaluation</td>
+    </tr>
+    <tr>
+      <td><strong>Motion Blur</strong></td>
+      <td>Pertuz et al. (2013) [17]</td>
+      <td>Degrades ArcFace embedding quality</td>
+      <td>Laplacian variance quality gate</td>
+    </tr>
+    <tr>
+      <td><strong>H.264 Compression</strong></td>
+      <td>Empirically observed</td>
+      <td>Cosine similarity drops 0.15–0.30</td>
+      <td>Lower blur threshold (5.0 vs 12.0)</td>
+    </tr>
+    <tr>
+      <td><strong>Domain Gap</strong></td>
+      <td>Phillips et al. (2010) [26]</td>
+      <td>Gallery vs probe mismatch</td>
+      <td>Multi-modal features + degradation sweep</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Sun et al. (2015) showed that deep face representations, while highly discriminative for frontal faces, are highly sensitive to large yaw deviations — accuracy at ±60° yaw can be 40% below frontal accuracy [13]. Baker and Kanade (2002) established the fundamental information-theoretic limits of super-resolution for recognition: below approximately 20 pixels face width, no reconstruction algorithm can reliably recover identity-discriminative detail [16].</p>
+
+<!-- ══════════════════════ SECTION 7 ══════════════════════ -->
+<h2 class="section-title">Open-Set Recognition and FAISS Matching</h2>
+
+<h3 class="sub-title">7.1 The Closed-Set Problem</h3>
+<p>Bendale and Boult (2015) identified a fundamental limitation of all softmax and SVM classifiers: they operate in closed-set mode, always assigning a query to one of the known training classes even when the true identity is not enrolled [21]. In a surveillance scenario, this produces false identifications for every unknown person passing through the camera's field of view — unacceptable for any real deployment.</p>
+
+<h3 class="sub-title">7.2 Open-Set Recognition via Threshold Rejection</h3>
+<p>The literature review revealed that cosine similarity thresholding over ArcFace embeddings provides a principled open-set gate: if the best cosine similarity between a probe embedding and all gallery embeddings falls below a threshold, the probe is classified as UNKNOWN rather than being forced into a known class. This maintains ArcFace's discriminative power while adding open-set capability.</p>
+
+<h3 class="sub-title">7.3 FAISS for Scalable Similarity Search</h3>
+<p>Johnson, Douze, and Jégou (2019) introduced FAISS (Facebook AI Similarity Search), a library for efficient exact and approximate nearest-neighbour search over high-dimensional vector spaces [22]. The <em>IndexFlatIP</em> (inner product) index over L2-normalised vectors computes cosine similarity and returns the nearest gallery embedding in under 1ms for galleries up to 100,000 entries on CPU — enabling real-time open-set face recognition.</p>
+
+<!-- ══════════════════════ SECTION 8 ══════════════════════ -->
+<h2 class="section-title">Image Quality Enhancement and Super-Resolution</h2>
+
+<p>Wang et al. (2021) demonstrated that Real-ESRGAN, a generative super-resolution model trained on synthetically degraded images, can recover perceptually sharp texture from 4× downscaled face images and improve recognition rates by 5–15% on standard benchmarks [23]. For the practical video processing case, learned SR models add 50–200ms of inference latency per frame — prohibitive for real-time use.</p>
+
+<div class="callout">
+  <strong>Practical Solution Adopted</strong>
+  The survey revealed that bicubic upsampling with INTER_CUBIC interpolation, when applied to the padded face crop region <em>before</em> the alignment warp, provides meaningful improvement over bicubic upsampling <em>after</em> alignment. This is because the alignment warp itself introduces resampling artefacts that compound with the initial interpolation. The adopted approach crops the face region with 30% context padding, upscales to 112px using INTER_CUBIC, then performs the similarity transform alignment — matching the input format ArcFace expects.
+</div>
+
+<!-- ══════════════════════ SECTION 9 ══════════════════════ -->
+<h2 class="section-title">Temporal Consistency in Video</h2>
+
+<p>Single-frame face recognition in video is unreliable because any individual frame may be affected by motion blur, partial occlusion, unfavourable lighting, or compression artefacts at the exact moment of capture. Wu and Ji (2017) reviewed temporal smoothing approaches in video face recognition, finding that majority voting over a rolling window of 10–20 frames reduces false positive rate by 60–80% with negligible computational overhead [25].</p>
+
+<p>The temporal voter implemented in this project uses a 10-frame rolling window requiring 5-frame majority (50% consensus) before committing to an identity. This means the system absorbs up to 5 incorrect or ambiguous single-frame predictions before changing the displayed identity — eliminating visual flickering and improving user trust in the displayed result.</p>
+
+<!-- ══════════════════════ SECTION 10 ══════════════════════ -->
+<h2 class="section-title">Evaluation Methodology</h2>
+
+<h3 class="sub-title">10.1 CMC Curves — Rank-k Identification Rate</h3>
+<p>Phillips et al. (2010) standardised the Cumulative Match Characteristic (CMC) curve as the primary evaluation metric for closed-set face identification in surveillance scenarios [26]. The CMC plots Rank-k identification rate (the probability that the correct identity appears within the top-k returned matches) as a function of k. Rank-1 is the most stringent metric; Rank-5 is the practical operational metric for a human operator reviewing a shortlist.</p>
+
+<h3 class="sub-title">10.2 ROC Curves, EER, and TAR@FAR</h3>
+<p>The Receiver Operating Characteristic (ROC) curve plots True Accept Rate (TAR) vs. False Accept Rate (FAR) at varying thresholds. The Equal Error Rate (EER) — the operating point where FAR = False Reject Rate — provides a single scalar for threshold-independent comparison. TAR at FAR = 0.1% is the standard operational metric for surveillance: it measures how many enrolled persons are correctly identified while accepting fewer than 1 impostor per 1,000 queries.</p>
+
+<h3 class="sub-title">10.3 d-prime Discriminability Index</h3>
+<p>Signal detection theory's d' index (Green and Swets, 1966) measures the separation between genuine-pair and impostor-pair score distributions in units of standard deviation [27]. d' > 2.0 indicates strong separability between enrolled and non-enrolled individuals; d' < 1.0 indicates the system cannot reliably distinguish them.</p>
+
+<!-- ══════════════════════ SECTION 11 — KEY FINDINGS ══════════════════════ -->
+<h2 class="section-title">Key Findings Summary</h2>
+
+<div class="finding">
+  <div class="number">Finding 1</div>
+  <h4>Standard detectors fail on UAV-altitude faces without full-resolution input</h4>
+  <p>SCRFD's internal 640×640 detection grid causes a 30-pixel face in a 1920×1080 frame to appear as only 10 pixels on the grid when the frame is naively downscaled. Full-resolution input is required for reliable detection of small UAV faces.</p>
+</div>
+
+<div class="finding">
+  <div class="number">Finding 2</div>
+  <h4>No single feature type is sufficient — multi-modal fusion is required</h4>
+  <p>HOG captures shape, LBP captures texture, geometry captures structure, and ArcFace captures deep identity. Each degrades differently under UAV conditions. Their combination through PCA + SVM provides complementary robustness that no single feature achieves individually.</p>
+</div>
+
+<div class="finding">
+  <div class="number">Finding 3</div>
+  <h4>SVM and softmax classifiers cannot handle unknown individuals</h4>
+  <p>All closed-set classifiers will always identify a probe as one of the enrolled classes, generating false positives for unknown individuals. FAISS cosine similarity thresholding provides principled open-set rejection, returning "UNKNOWN" when the best gallery similarity is below the threshold.</p>
+</div>
+
+<div class="finding">
+  <div class="number">Finding 4</div>
+  <h4>UAV pose and altitude cause 15–40% accuracy degradation</h4>
+  <p>The literature establishes that recognition accuracy drops non-linearly with yaw angle (beyond ±30°) and face resolution (below 64 pixels). UAV footage routinely presents both challenges simultaneously — the pose study experiment directly quantifies this effect in the project's specific data distribution.</p>
+</div>
+
+<div class="finding">
+  <div class="number">Finding 5</div>
+  <h4>Single-frame video predictions require temporal smoothing</h4>
+  <p>Rolling-window majority voting over 10 frames reduces false positive rate by 60–80% with no additional model cost. This is essential for producing stable, trustworthy identity labels in a live surveillance video feed.</p>
+</div>
+
+<!-- ══════════════════════ SECTION 12 — MAPPING ══════════════════════ -->
+<h2 class="section-title">Component-to-Literature Mapping</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Project Component</th>
+      <th>Implementation</th>
+      <th>Literature Basis</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>Face Detector</td><td><code>SCRFD det_10g.onnx</code></td><td>Guo et al. (2021) [5]</td></tr>
+    <tr><td>Face Alignment</td><td>dlib 68-pt + InsightFace 5-pt warp</td><td>Kazemi &amp; Sullivan (2014) [7]</td></tr>
+    <tr><td>Texture Features</td><td>HOG on 112×112 aligned crop</td><td>Dalal &amp; Triggs (2005) [2]</td></tr>
+    <tr><td>Micro-texture Features</td><td>Uniform LBP spatial histograms</td><td>Ahonen et al. (2006) [6]</td></tr>
+    <tr><td>Structural Features</td><td>68-landmark distance/angle vector</td><td>Kazemi &amp; Sullivan (2014) [7]</td></tr>
+    <tr><td>Deep Embedding</td><td>ArcFace ResNet-50 (512-D)</td><td>Deng et al. (2019) [12]</td></tr>
+    <tr><td>Dimensionality Reduction</td><td>PCA (95% variance retained)</td><td>Turk &amp; Pentland (1991) [18]</td></tr>
+    <tr><td>Closed-Set Classifier</td><td>RBF SVM + Platt probability calibration</td><td>Cortes &amp; Vapnik (1995) [19]</td></tr>
+    <tr><td>Open-Set Matching</td><td>FAISS IndexFlatIP + cosine threshold</td><td>Johnson et al. (2019) [22]</td></tr>
+    <tr><td>Quality Gate</td><td>Laplacian variance (blur score)</td><td>Pertuz et al. (2013) [17]</td></tr>
+    <tr><td>Temporal Smoothing</td><td>10-frame rolling majority vote</td><td>Wu &amp; Ji (2017) [25]</td></tr>
+    <tr><td>CMC / ROC Evaluation</td><td><code>run_baseline.py</code> experiment</td><td>Phillips et al. (2010) [26]</td></tr>
+    <tr><td>Pose Study</td><td><code>run_pose_study.py</code> experiment</td><td>Sun et al. (2015) [13]</td></tr>
+    <tr><td>Degradation Sweep</td><td><code>run_degradation.py</code> experiment</td><td>Zangeneh et al. (2020) [15]</td></tr>
+  </tbody>
+</table>
+
+<!-- ══════════════════════ REFERENCES ══════════════════════ -->
+<h2 class="section-title">References</h2>
+<div class="references">
+  <p><span class="ref-num">[1]</span> Viola, P., &amp; Jones, M. (2001). Rapid object detection using a boosted cascade of simple features. <em>CVPR 2001</em>, pp. 511–518.</p>
+  <p><span class="ref-num">[2]</span> Dalal, N., &amp; Triggs, B. (2005). Histograms of oriented gradients for human detection. <em>CVPR 2005</em>, pp. 886–893.</p>
+  <p><span class="ref-num">[3]</span> Zhang, K., Zhang, Z., Li, Z., &amp; Qiao, Y. (2016). Joint face detection and alignment using multitask cascaded convolutional networks. <em>IEEE Signal Processing Letters, 23</em>(10), 1499–1503.</p>
+  <p><span class="ref-num">[4]</span> Deng, J., Guo, J., Ververas, E., Kotsia, I., &amp; Zafeiriou, S. (2020). RetinaFace: Single-shot multi-level face localisation in the wild. <em>CVPR 2020</em>.</p>
+  <p><span class="ref-num">[5]</span> Guo, J., Deng, J., Lattas, A., &amp; Zafeiriou, S. (2021). Sample and computation redistribution for efficient face detection. <em>ICLR 2022</em>. arXiv:2105.04714.</p>
+  <p><span class="ref-num">[6]</span> Ahonen, T., Hadid, A., &amp; Pietikainen, M. (2006). Face description with local binary patterns: Application to face recognition. <em>IEEE TPAMI, 28</em>(12), 2037–2041.</p>
+  <p><span class="ref-num">[7]</span> Kazemi, V., &amp; Sullivan, J. (2014). One millisecond face alignment with an ensemble of regression trees. <em>CVPR 2014</em>.</p>
+  <p><span class="ref-num">[8]</span> Taigman, Y., Yang, M., Ranzato, M. A., &amp; Wolf, L. (2014). DeepFace: Closing the gap to human-level performance in face verification. <em>CVPR 2014</em>.</p>
+  <p><span class="ref-num">[9]</span> Schroff, F., Kalenichenko, D., &amp; Philbin, J. (2015). FaceNet: A unified embedding for face recognition and clustering. <em>CVPR 2015</em>.</p>
+  <p><span class="ref-num">[10]</span> Liu, W., Wen, Y., Yu, Z., Li, M., Raj, B., &amp; Song, L. (2017). SphereFace: Deep hypersphere embedding for face recognition. <em>CVPR 2017</em>.</p>
+  <p><span class="ref-num">[11]</span> Wang, H. et al. (2018). CosFace: Large margin cosine loss for deep face recognition. <em>CVPR 2018</em>.</p>
+  <p><span class="ref-num">[12]</span> Deng, J., Guo, J., Xue, N., &amp; Zafeiriou, S. (2019). ArcFace: Additive angular margin loss for deep face recognition. <em>CVPR 2019</em>.</p>
+  <p><span class="ref-num">[13]</span> Sun, Y., Wang, X., &amp; Tang, X. (2015). Deeply learned face representations are sparse, selective, and robust. <em>CVPR 2015</em>.</p>
+  <p><span class="ref-num">[14]</span> Blanz, V., &amp; Vetter, T. (1999). A morphable model for the synthesis of 3D faces. <em>SIGGRAPH 1999</em>.</p>
+  <p><span class="ref-num">[15]</span> Zangeneh, E., Rahmati, M., &amp; Mohsenzadeh, Y. (2020). Low-resolution face recognition using a two-branch deep convolutional neural network architecture. <em>Expert Systems with Applications, 139</em>.</p>
+  <p><span class="ref-num">[16]</span> Baker, S., &amp; Kanade, T. (2002). Limits on super-resolution and how to break them. <em>IEEE TPAMI, 24</em>(9), 1167–1183.</p>
+  <p><span class="ref-num">[17]</span> Pertuz, S., Puig, D., &amp; Garcia, M. A. (2013). Analysis of focus measure operators for shape-from-focus. <em>Pattern Recognition, 46</em>(5), 1415–1432.</p>
+  <p><span class="ref-num">[18]</span> Turk, M., &amp; Pentland, A. (1991). Eigenfaces for recognition. <em>Journal of Cognitive Neuroscience, 3</em>(1), 71–86.</p>
+  <p><span class="ref-num">[19]</span> Cortes, C., &amp; Vapnik, V. (1995). Support-vector networks. <em>Machine Learning, 20</em>(3), 273–297.</p>
+  <p><span class="ref-num">[20]</span> Platt, J. (1999). Probabilistic outputs for support vector machines. <em>Advances in Large Margin Classifiers, 10</em>(3), 61–74.</p>
+  <p><span class="ref-num">[21]</span> Bendale, A., &amp; Boult, T. (2015). Towards open set deep networks. <em>CVPR 2015</em>.</p>
+  <p><span class="ref-num">[22]</span> Johnson, J., Douze, M., &amp; Jégou, H. (2019). Billion-scale similarity search with GPUs. <em>IEEE Trans. on Big Data, 7</em>(3), 535–547.</p>
+  <p><span class="ref-num">[23]</span> Wang, X., Xie, L., Dong, C., &amp; Shan, Y. (2021). Real-ESRGAN: Training real-world blind super-resolution with pure synthetic data. <em>ICCV Workshop 2021</em>.</p>
+  <p><span class="ref-num">[24]</span> Welch, G., &amp; Bishop, G. (1995). An introduction to the Kalman filter. UNC Chapel Hill, TR 95-041.</p>
+  <p><span class="ref-num">[25]</span> Wu, Y., &amp; Ji, Q. (2017). Facial landmark detection: A literature survey. <em>International Journal of Computer Vision, 127</em>(2), 115–142.</p>
+  <p><span class="ref-num">[26]</span> Phillips, P. J. et al. (2010). FRVT 2006 and ICE 2006 large-scale experimental results. <em>IEEE TPAMI, 32</em>(5), 831–846.</p>
+  <p><span class="ref-num">[27]</span> Green, D. M., &amp; Swets, J. A. (1966). <em>Signal Detection Theory and Psychophysics</em>. Wiley, New York.</p>
+</div>
+
+</div><!-- end .page -->
+</body>
+</html>

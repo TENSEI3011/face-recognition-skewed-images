@@ -35,7 +35,17 @@ DEFAULT_TOP_K        = 3
 # Score 0.0 (certain spoof) → 1.0 (certain real). Faces below LIVENESS_THRESHOLD
 # are rejected as presentation attacks (printed photo, screen, mask, video replay).
 LIVENESS_ENABLED     = True    # Set False to bypass (useful for testing/demo)
-LIVENESS_THRESHOLD   = 0.50    # Raise to 0.60 for stricter security; 0.40 for permissive
+LIVENESS_THRESHOLD   = 0.45    # Lowered from 0.50 — passive is now 6-signal fused;
+                                # active blink challenge is the hard gate for live webcam.
+
+# ── Active Liveness — Blink Challenge ─────────────────────────────────────────
+# Challenge-response: user must blink within BLINK_TIMEOUT_SEC seconds.
+# A static photo / video cannot blink on command → defeats screen/print attacks.
+BLINK_ENABLED        = True    # Set False to skip blink challenge (testing only)
+BLINK_EAR_THRESHOLD  = 0.25   # Eye Aspect Ratio below this → eye closed (blink)
+BLINK_TIMEOUT_SEC    = 7.0    # Seconds user has to complete the blink challenge
+BLINK_REQUIRED_COUNT = 1      # Number of blinks required to pass
+BLINK_CONSEC_FRAMES  = 2      # Min consecutive frames below EAR threshold = blink
 
 # ── MongoDB Atlas ──────────────────────────────────────────────────────────────
 # Set MONGO_URI as an environment variable on Render / locally in .env

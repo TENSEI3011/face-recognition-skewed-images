@@ -37,6 +37,7 @@ from web.backend.routers import (
     gallery, identify, results, experiments, video_demo, config_router,
     auth, watchlist, audit, analytics, batch, retrain,
 )
+from web.backend.routers import liveness_router
 
 # ── App ────────────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -101,6 +102,7 @@ app.include_router(audit.router)
 app.include_router(analytics.router)
 app.include_router(batch.router)
 app.include_router(retrain.router)
+app.include_router(liveness_router.router)   # active blink challenge + passive debug
 
 # ── Frontend static files ──────────────────────────────────────────────────────
 if FRONTEND_DIR.exists():

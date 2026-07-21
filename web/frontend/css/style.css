@@ -991,3 +991,22 @@ td:first-child { color: var(--text); font-family: 'IBM Plex Mono', monospace; }
   .grid-4, .grid-3, .grid-2 { grid-template-columns: 1fr; }
   .content { padding: 14px 16px; }
 }
+
+/* ── Liveness Challenge Overlay ─────────────────────────────────────────────── */
+@keyframes liveness-pulse {
+  0%   { transform: scale(1.00); filter: drop-shadow(0 0 8px #4f8ef7);  }
+  50%  { transform: scale(1.15); filter: drop-shadow(0 0 20px #22d3ee); }
+  100% { transform: scale(1.00); filter: drop-shadow(0 0 8px #4f8ef7);  }
+}
+@keyframes liveness-success-flash {
+  0%   { opacity: 1; }
+  50%  { opacity: 0.4; }
+  100% { opacity: 1; }
+}
+
+/* SPOOF badge */
+.badge-orange {
+  background: rgba(249, 115, 22, 0.15);
+  color: #f97316;
+  border: 1px solid rgba(249, 115, 22, 0.4);
+}

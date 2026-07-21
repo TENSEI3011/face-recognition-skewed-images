@@ -16,6 +16,14 @@ var _lastFaces   = [];          // last face detections from server (for overlay
 var _scaleX      = 1;           // scale from inference canvas → display canvas (x)
 var _scaleY      = 1;           // scale from inference canvas → display canvas (y)
 
+// ── Liveness / Blink Challenge State ────────────────────────────────────────
+var _livenessSessionId    = null;   // current challenge session UUID
+var _livenessTimer        = null;   // setInterval for sending blink frames
+var _livenessPassed       = false;  // true once challenge passed
+var _livenessTimeoutSec   = 7;      // synced from server
+var _livenessStartedAt    = 0;
+
+
 // Init - wait for DOM to be fully loaded
 document.addEventListener('DOMContentLoaded', function() {
   _video  = document.getElementById('webcam-video');
@@ -154,9 +162,232 @@ async function startStream() {
   // Start the smooth 60fps display loop (draws webcam + overlays boxes)
   _startDisplayLoop();
 
+  if (startBtn) { startBtn.textContent = 'Verifying liveness...'; }
+
+  // Step 7: run blink challenge — WebSocket opens only after user blinks
+  runBlinkChallenge();
+}
+
+
+// ── Liveness Challenge Helpers ───────────────────────────────────────────────
+
+function _showLivenessOverlay(timeoutSec) {
+  var overlay = document.getElementById('liveness-overlay');
+  if (!overlay) return;
+  overlay.style.display = 'flex';
+  // Reset UI elements
+  var timerEl = document.getElementById('liveness-timer');
+  var earEl   = document.getElementById('liveness-ear');
+  var msgEl   = document.getElementById('liveness-msg');
+  var barEl   = document.getElementById('liveness-progress-bar');
+  var eyeEl   = document.getElementById('liveness-eye-icon');
+  if (timerEl) timerEl.textContent = timeoutSec || 7;
+  if (earEl)   earEl.textContent   = '—';
+  if (msgEl)   msgEl.innerHTML     = 'Please <strong style="color:#fff">BLINK</strong> naturally to verify you are real.';
+  if (barEl)   barEl.style.width   = '100%';
+  if (eyeEl)   eyeEl.textContent   = '👁';
+  // Pulsing animation on the eye icon
+  if (eyeEl) {
+    eyeEl.style.animation = 'none';
+    setTimeout(function() {
+      eyeEl.style.animation = 'liveness-pulse 2s ease-in-out infinite';
+    }, 50);
+  }
+}
+
+function _hideLivenessOverlay() {
+  var overlay = document.getElementById('liveness-overlay');
+  if (overlay) overlay.style.display = 'none';
+  if (_livenessTimer) { clearInterval(_livenessTimer); _livenessTimer = null; }
+}
+
+function skipLivenessChallenge() {
+  // Allow tester to skip the challenge (demo mode only)
+  _livenessPassed = true;
+  _hideLivenessOverlay();
+  _openWebSocket();
+}
+
+/**
+ * runBlinkChallenge()
+ * Detects a blink entirely in the browser using pixel-level eye-region analysis.
+ * NO server round-trips, NO external libraries needed.
+ *
+ * HOW: Samples a horizontal strip across the centre of the face frame (eye-level).
+ * When eyes are open → bright horizontal strip (iris/sclera reflects light).
+ * When eyes blink → strip darkens as eyelids close.
+ * A blink = the strip brightness drops >15% below baseline, then recovers.
+ * A static phone photo → no brightness change → blink never detected.
+ */
+async function runBlinkChallenge() {
+  _livenessPassed  = false;
+  _livenessStartedAt = Date.now();
+  _livenessTimeoutSec = 10;  // 10 seconds to blink
+
+  _showLivenessOverlay(_livenessTimeoutSec);
+
+  // Ensure inference canvas is available
+  if (!_inferCanvas) {
+    _inferCanvas       = document.createElement('canvas');
+    _inferCanvas.width  = 320;
+    _inferCanvas.height = 240;
+  }
+
+  // Build blink dot
+  var dotsEl = document.getElementById('blink-dots');
+  if (dotsEl) {
+    dotsEl.innerHTML = '';
+    var dot = document.createElement('div');
+    dot.id = 'blink-dot-0';
+    dot.style.cssText = 'width:14px;height:14px;border-radius:50%;background:rgba(255,255,255,.2);border:2px solid rgba(255,255,255,.4);transition:all .3s';
+    dotsEl.appendChild(dot);
+  }
+
+  var challengeDone   = false;
+  var blinkDetected   = false;
+  var baselineBright  = -1;    // rolling baseline brightness of eye strip
+  var eyeHistory      = [];    // brightness samples
+  var HISTORY_LEN     = 8;     // rolling window
+  var belowBaseline   = false; // currently in a dip?
+  var dipFrames       = 0;     // frames below threshold in current dip
+  var MIN_DIP_FRAMES  = 2;     // min frames dark to count as blink
+  var DIP_THRESHOLD   = 0.84;  // brightness drops to <84% of baseline → blink
+
+  // We sample a horizontal strip at 35-55% height (eye level) and 20-80% width
+  var offscreenCtx = _inferCanvas.getContext('2d');
+
+  function _sampleEyeStrip() {
+    if (!_video || !_video.readyState || _video.videoWidth === 0) return null;
+    // Draw current frame to inference canvas
+    offscreenCtx.drawImage(_video, 0, 0, 320, 240);
+    // Sample eye-level strip (y=84..132 = 35-55% of 240px)
+    var y0 = 84, y1 = 132;
+    var x0 = 64, x1 = 256;  // 20-80% of 320px
+    var imageData = offscreenCtx.getImageData(x0, y0, x1 - x0, y1 - y0);
+    var data = imageData.data;
+    var total = 0;
+    var count = 0;
+    for (var i = 0; i < data.length; i += 4) {
+      // Luminance: 0.299R + 0.587G + 0.114B
+      total += 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
+      count++;
+    }
+    return count > 0 ? total / count : null;
+  }
+
+  _livenessTimer = setInterval(function() {
+    if (challengeDone) return;
+
+    // Update countdown
+    var elapsed   = (Date.now() - _livenessStartedAt) / 1000;
+    var remaining = Math.max(0, _livenessTimeoutSec - elapsed);
+    var barEl   = document.getElementById('liveness-progress-bar');
+    var timerEl = document.getElementById('liveness-timer');
+    if (barEl)   barEl.style.width = ((remaining / _livenessTimeoutSec) * 100) + '%';
+    if (timerEl) timerEl.textContent = remaining.toFixed(0);
+
+    // Sample current frame brightness
+    var bright = _sampleEyeStrip();
+    if (bright === null) return;
+
+    // Build baseline from first HISTORY_LEN samples
+    eyeHistory.push(bright);
+    if (eyeHistory.length > HISTORY_LEN * 3) eyeHistory.shift();
+
+    if (baselineBright < 0) {
+      if (eyeHistory.length >= HISTORY_LEN) {
+        // Use top 70% average as baseline (ignore any outlier dips)
+        var sorted = eyeHistory.slice().sort(function(a,b){return b-a;});
+        var top    = sorted.slice(0, Math.ceil(sorted.length * 0.7));
+        baselineBright = top.reduce(function(s,v){return s+v;}, 0) / top.length;
+      }
+      return;  // still building baseline
+    }
+
+    // Continuously update baseline (slow exponential moving average, upward only)
+    if (bright > baselineBright) {
+      baselineBright = baselineBright * 0.95 + bright * 0.05;
+    }
+
+    var ratio = bright / baselineBright;
+
+    // Update EAR display with ratio (repurposing EAR label to show brightness ratio)
+    var earEl = document.getElementById('liveness-ear');
+    if (earEl) {
+      earEl.textContent = ratio.toFixed(3);
+      earEl.style.color = ratio < DIP_THRESHOLD ? '#f87171' : '#4ade80';
+    }
+
+    // Blink detection state machine
+    if (ratio < DIP_THRESHOLD) {
+      dipFrames++;
+      belowBaseline = true;
+    } else {
+      if (belowBaseline && dipFrames >= MIN_DIP_FRAMES) {
+        // Eye just re-opened after being closed long enough → blink!
+        blinkDetected = true;
+        var dotEl = document.getElementById('blink-dot-0');
+        if (dotEl) {
+          dotEl.style.background = '#4ade80';
+          dotEl.style.border     = '2px solid #4ade80';
+          dotEl.style.boxShadow  = '0 0 8px #4ade80';
+        }
+        console.log('[Liveness] Blink detected! ratio=' + ratio.toFixed(3) +
+                    ' dipFrames=' + dipFrames + ' baseline=' + baselineBright.toFixed(1));
+      }
+      belowBaseline = false;
+      dipFrames     = 0;
+    }
+
+    // Pass condition
+    if (blinkDetected) {
+      challengeDone   = true;
+      _livenessPassed = true;
+      if (_livenessTimer) { clearInterval(_livenessTimer); _livenessTimer = null; }
+
+      var msgEl = document.getElementById('liveness-msg');
+      var eyeEl = document.getElementById('liveness-eye-icon');
+      if (msgEl) msgEl.innerHTML = '<strong style="color:#4ade80">✅ Liveness verified!</strong>';
+      if (eyeEl) { eyeEl.textContent = '✅'; eyeEl.style.animation = 'none'; }
+      if (barEl) barEl.style.background = '#4ade80';
+
+      setTimeout(function() {
+        _hideLivenessOverlay();
+        _openWebSocket();
+      }, 900);
+      return;
+    }
+
+    // Timeout
+    if (elapsed >= _livenessTimeoutSec) {
+      challengeDone   = true;
+      _livenessPassed = false;
+      if (_livenessTimer) { clearInterval(_livenessTimer); _livenessTimer = null; }
+
+      var msgEl2 = document.getElementById('liveness-msg');
+      var eyeEl2 = document.getElementById('liveness-eye-icon');
+      if (msgEl2) msgEl2.innerHTML = '<strong style="color:#f87171">❌ No blink detected.</strong><br><span style="font-size:.85rem">Please blink naturally and try again.</span>';
+      if (eyeEl2) { eyeEl2.textContent = '❌'; eyeEl2.style.animation = 'none'; }
+      if (barEl)  barEl.style.background = '#ef4444';
+
+      setTimeout(function() {
+        _hideLivenessOverlay();
+        _doStopStream();
+        showAlert('alert-zone', '🔒 Liveness check failed — no blink detected. Hold your phone photo in front and it cannot blink! Try with YOUR face and blink once.', 'danger');
+      }, 1500);
+    }
+  }, 80);  // ~12fps sampling
+}
+
+/**
+ * _openWebSocket()
+ * Opens the recognition WebSocket AFTER liveness is passed.
+ * Extracted from startStream() so we can call it post-challenge.
+ */
+function _openWebSocket() {
+  var startBtn = document.getElementById('start-btn');
   if (startBtn) { startBtn.textContent = 'Connecting...'; }
 
-  // Step 7: open WebSocket
   var wsProto = (location.protocol === 'https:') ? 'wss' : 'ws';
   var wsUrl   = wsProto + '://' + location.host + '/ws/stream';
 
@@ -183,13 +414,10 @@ async function startStream() {
     _wsBusy     = false;
     _lastSentMs = 0;
 
-    // Use setInterval instead of requestAnimationFrame to control send rate independently
-    // of the browser render loop. This prevents frame queue build-up that causes lag.
     var fpsEl = document.getElementById('fps-select');
     var intervalMs = fpsEl ? parseInt(fpsEl.value, 10) : 333;
     _sendTimer = setInterval(_sendFrame, intervalMs);
 
-    // When user changes FPS dropdown, restart the interval
     if (fpsEl && !fpsEl._demoListenerAdded) {
       fpsEl._demoListenerAdded = true;
       fpsEl.addEventListener('change', function() {
@@ -202,7 +430,7 @@ async function startStream() {
   };
 
   ws.onmessage = function(event) {
-    _wsBusy = false;   // unblock sender immediately — display is independent
+    _wsBusy = false;
     try {
       var msg = JSON.parse(event.data);
       if (msg.error) {
@@ -211,9 +439,6 @@ async function startStream() {
         return;
       }
       if (msg.type === 'frame') {
-        // Store face results for the display loop to draw as overlay.
-        // We deliberately IGNORE msg.frame (server JPEG) — the display loop
-        // draws the live webcam directly so it is always lag-free.
         _lastFaces = msg.faces || [];
         _updateFaceList(_lastFaces);
         totalFrames++;
@@ -235,6 +460,7 @@ async function startStream() {
     _doStopStream();
   };
 }
+
 
 function _sendFrame() {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
@@ -300,11 +526,15 @@ function _drawFaceOverlay(faces) {
     var by    = Math.round((box.y || 0) * _scaleY);
     var bw    = Math.round((box.w || 0) * _scaleX);
     var bh    = Math.round((box.h || 0) * _scaleY);
-    var known = f.is_known;
-    var label = (f.identity || 'UNKNOWN').replace(/_/g, ' ');
+    var isSpoof = f.is_spoof;
+    var known   = f.is_known;
+    var label   = isSpoof ? '⚠️ SPOOF DETECTED'
+                          : (f.identity || 'UNKNOWN').replace(/_/g, ' ');
+
     var pct   = ((f.confidence || 0) * 100).toFixed(1) + '%';
-    var text  = label + '  ' + pct;
-    var color = known ? '#00e676' : '#ff1744';
+    var text  = isSpoof ? label : (label + '  ' + pct);
+    var color = isSpoof ? '#f97316' : (known ? '#00e676' : '#ff1744');
+
     var cLen  = Math.min(bw, bh) * 0.22;   // corner bracket length
 
     // Corner-bracket style box (more modern than solid rectangle)
@@ -416,6 +646,11 @@ function _doStopStream() {
   _lastFaces = [];
   _inferCanvas = null;
 
+  // Clean up liveness challenge state
+  _hideLivenessOverlay();
+  _livenessPassed    = false;
+  _livenessSessionId = null;
+
   var badge       = document.getElementById('live-badge');
   var placeholder = document.getElementById('cam-placeholder');
   var startBtn    = document.getElementById('start-btn');
@@ -423,6 +658,8 @@ function _doStopStream() {
   if (badge)       badge.classList.remove('active');
   if (placeholder) placeholder.style.display = 'flex';
   if (startBtn)    startBtn.classList.remove('hidden');
+  if (startBtn)    startBtn.disabled = false;
+  if (startBtn)    startBtn.textContent = 'Start Recognition';
   if (stopBtn)     stopBtn.classList.add('hidden');
   if (_ctx && _canvas) _ctx.clearRect(0, 0, _canvas.width, _canvas.height);
 }
@@ -447,18 +684,21 @@ function _updateFaceList(faces) {
   var fc = document.getElementById('face-count');
   if (fc) fc.textContent = totalFaces;
   el.innerHTML = faces.map(function(f, i) {
-    var known = f.is_known ? 'Known' : 'Unknown';
-    var cls   = f.is_known ? 'badge-green' : 'badge-red';
-    var name  = (f.identity || 'UNKNOWN').replace(/_/g, ' ');
-    var pct   = ((f.confidence || 0) * 100).toFixed(1) + '%';
-    return '<div class="candidate-row">' +
+    var isSpoof = f.is_spoof;
+    var known   = isSpoof ? '⚠️ SPOOF' : (f.is_known ? 'Known' : 'Unknown');
+    var cls     = isSpoof ? 'badge-orange' : (f.is_known ? 'badge-green' : 'badge-red');
+    var name    = isSpoof ? '⚠️ PRESENTATION ATTACK' : (f.identity || 'UNKNOWN').replace(/_/g, ' ');
+    var pct     = ((f.confidence || 0) * 100).toFixed(1) + '%';
+    var rowStyle = isSpoof ? 'background:rgba(255,100,0,0.08);border-left:3px solid #f97316;' : '';
+    return '<div class="candidate-row" style="' + rowStyle + '">' +
       '<div class="candidate-rank">#' + (i + 1) + '</div>' +
-      '<div class="candidate-name" style="flex:1">' + name + '</div>' +
+      '<div class="candidate-name" style="flex:1;' + (isSpoof ? 'color:#f97316;font-weight:700' : '') + '">' + name + '</div>' +
       '<div class="candidate-pct">' + pct + '</div>' +
       '<span class="badge ' + cls + '">' + known + '</span>' +
       '</div>';
   }).join('');
 }
+
 
 function takeSnapshot() {
   if (!_canvas || !webcamStream) return;

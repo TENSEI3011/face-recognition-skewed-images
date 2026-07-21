@@ -411,6 +411,13 @@ pdf.code([
     "",
     "MONGO_DB_NAME=facerecog_db",
     "ENV=development",
+    "",
+    "# --- Anti-Spoofing / Liveness Detection (new) ---",
+    "LIVENESS_ENABLED=True     # Set False to disable the check",
+    "LIVENESS_THRESHOLD=0.50   # 0.0-1.0: lower = more permissive",
+    "",
+    "# --- Recognition Threshold ---",
+    "FAISS_THRESHOLD=0.35      # Cosine similarity threshold (0.35 tuned for UAV)",
 ], label=".env file - save with Ctrl+S after editing")
 pdf.body("Save the file (Ctrl+S) and close Notepad.")
 pdf.box("tip", "Recommended for Defence / Offline Use: Local MongoDB",
@@ -458,7 +465,8 @@ pdf.bullet("Open http://localhost:8000/gallery in your browser")
 pdf.bullet("Enter the person's name and click 'Upload Images' or drag a video file")
 pdf.bullet("Supported formats: JPG, PNG, BMP (images) and MP4, MOV, AVI (video)")
 pdf.bullet("For video: frames are sampled every 15 frames; blurry frames are skipped automatically")
-pdf.bullet("Click 'Retrain from Gallery' after uploading to rebuild the model")
+pdf.bullet("Model retraining starts AUTOMATICALLY after each upload (no manual click needed)")
+pdf.bullet("First retrain takes ~15 seconds. After that: ~2 seconds thanks to embedding cache")
 pdf.ln(2)
 pdf.sub("Option B: Retrain with GridSearchCV (best accuracy, takes ~5 minutes extra):")
 pdf.body("After your gallery is complete, run a GridSearch retrain to find the best SVM settings:")
@@ -482,14 +490,14 @@ pdf.table(
     headers=["Page", "URL", "What It Does"],
     rows=[
         ["Dashboard",  "http://localhost:8000/",          "System status and metrics overview"],
-        ["Identify",   "http://localhost:8000/identify",  "Upload a photo to identify a face"],
-        ["Gallery",    "http://localhost:8000/gallery",   "Enroll via images OR video files (MP4/MOV/AVI)"],
-        ["Demo",       "http://localhost:8000/demo",      "Upload video or use live webcam"],
+        ["Identify",   "http://localhost:8000/identify",  "Upload a photo to identify a face (liveness checked automatically)"],
+        ["Gallery",    "http://localhost:8000/gallery",   "Enroll via images OR video files (MP4/MOV/AVI) - auto-retrains"],
+        ["Demo",       "http://localhost:8000/demo",      "Upload video or use live webcam (temporal voting active)"],
         ["Results",    "http://localhost:8000/results",   "Experiment accuracy graphs (CMC, ROC)"],
         ["Analytics",  "http://localhost:8000/analytics", "System usage stats"],
-        ["Audit Log",  "http://localhost:8000/audit",     "All identification events log"],
+        ["Audit Log",  "http://localhost:8000/audit",     "All identification events (incl. spoof detections)"],
         ["Watchlist",  "http://localhost:8000/watchlist", "Alert watchlist management"],
-        ["Config",     "http://localhost:8000/config",    "Adjust threshold and pipeline settings"],
+        ["Config",     "http://localhost:8000/config",    "Threshold, pipeline settings, anti-spoofing toggle + sensitivity"],
         ["API Docs",   "http://localhost:8000/docs",      "Full REST API reference"],
     ],
     widths=[26, 68, 80]

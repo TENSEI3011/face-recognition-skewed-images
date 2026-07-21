@@ -62,7 +62,7 @@
       <div class="grid-2 mt-4">
         <div>
           <!-- Video feed -->
-          <div class="video-container mb-3" style="max-width:none">
+          <div class="video-container mb-3" style="max-width:none;position:relative">
             <video id="webcam-video" autoplay muted playsinline></video>
             <canvas id="stream-canvas"></canvas>
             <div class="live-badge" id="live-badge">● LIVE</div>
@@ -70,7 +70,71 @@
               <div style="font-size:2rem;margin-bottom:8px">📷</div>
               Camera not started
             </div>
+
+            <!-- ── Liveness Challenge Overlay ─────────────────────── -->
+            <div id="liveness-overlay" style="
+              display:none;
+              position:absolute;inset:0;
+              background:rgba(0,0,0,0.82);
+              border-radius:inherit;
+              z-index:20;
+              flex-direction:column;
+              align-items:center;
+              justify-content:center;
+              gap:12px;
+              text-align:center;
+              padding:24px;
+            ">
+              <!-- Eye animation -->
+              <div id="liveness-eye-icon" style="font-size:3.5rem;line-height:1;filter:drop-shadow(0 0 12px #4f8ef7)">👁</div>
+
+              <!-- Title -->
+              <div style="font-size:1.1rem;font-weight:700;color:#fff;letter-spacing:.05em">
+                🔒 LIVENESS CHECK
+              </div>
+
+              <!-- Instruction -->
+              <div id="liveness-msg" style="
+                font-size:.95rem;color:#c8d8ff;max-width:260px;line-height:1.5
+              ">Please <strong style="color:#fff">BLINK</strong> naturally to verify you are real.</div>
+
+              <!-- Blink progress dots -->
+              <div style="display:flex;gap:10px;margin:4px 0" id="blink-dots"></div>
+
+              <!-- Countdown bar -->
+              <div style="width:220px;background:rgba(255,255,255,.15);border-radius:6px;height:6px;overflow:hidden">
+                <div id="liveness-progress-bar" style="
+                  height:100%;
+                  width:100%;
+                  background:linear-gradient(90deg,#4f8ef7,#22d3ee);
+                  border-radius:6px;
+                  transition:width .3s linear;
+                "></div>
+              </div>
+
+              <!-- Timer + EAR -->
+              <div style="font-size:.78rem;color:#8aabff;font-family:monospace">
+                Time: <span id="liveness-timer">7</span>s
+                &nbsp;|&nbsp;
+                EAR: <span id="liveness-ear">—</span>
+              </div>
+
+              <!-- Skip link (for testing) -->
+              <button onclick="skipLivenessChallenge()" style="
+                margin-top:4px;
+                background:transparent;
+                border:1px solid rgba(255,255,255,.2);
+                color:rgba(255,255,255,.5);
+                font-size:.7rem;
+                padding:4px 12px;
+                border-radius:20px;
+                cursor:pointer;
+              ">Skip (demo mode)</button>
+            </div>
+            <!-- ── End Liveness Overlay ──────────────────────────── -->
+
           </div>
+
 
           <div class="flex gap-2">
             <button class="btn btn-success" id="start-btn" onclick="startStream()">▶ Start Recognition</button>
