@@ -27,9 +27,13 @@ SCRFD Face Detection (det_10g.onnx)     ← full-res, auto-upscale for tiny face
         ↓
 dlib + InsightFace 5-pt Alignment → 112×112
         ↓
-  🛡️ Passive Liveness Check (anti-spoofing)   ← NEW: reject printed photos, screens, video replay
-    score < 0.50 → SPOOF DETECTED (stop)
-    score ≥ 0.50 → continue
+  🛡️ Passive Liveness Check (anti-spoofing)   ← rejects printed photos, screens, video replay
+    score < 0.45 → SPOOF DETECTED (stop)       ← threshold lowered to 0.45 (6-signal fusion)
+    score ≥ 0.45 → continue
+        ↓
+  🔍 Active Blink Challenge (live webcam only)  ← browser-side, no server round-trip
+    no blink in 10s → rejected
+    blink detected → WebSocket opens
         ↓
      ┌──────────────────────────────┐  (parallel — ThreadPoolExecutor)
      ↓          ↓           ↓           ↓
@@ -64,9 +68,12 @@ dlib + InsightFace 5-pt Alignment → 112×112
 | **PCA** | Dimensionality reduction with **99%** variance retention (raised from 95%) |
 | **SVM** | RBF kernel with Platt probability calibration — closed-set fallback |
 | **TTA** | Test-Time Augmentation — 5-variant embedding average before FAISS matching (+3–8% accuracy) |
-| **FAISS** | `IndexFlatIP` cosine similarity — open-set identification with UNKNOWN rejection |
-| **🛡️ Liveness** | Passive anti-spoofing (LBP texture + FFT frequency + gradient coherence) — rejects photo/screen attacks |
-| **Temporal Voter** | 10-frame rolling majority vote for stable video identification |
+| **FAISS** | `IndexFlatIP` cosine similarity — open-set identification with UNKNOWN rejection (`FAISS_THRESHOLD=0.35`) |
+| **🛡️ Passive Liveness** | LBP texture entropy + FFT frequency + gradient coherence (6-signal fusion) — rejects photo/screen attacks in ~3ms |
+| **🔍 Active Blink Challenge** | Browser-side pixel brightness analysis detects real blink within 10s; static photos/screens cannot blink |
+| **Temporal Voter + Identity Tracker** | Dual-strategy tracker: identity-name lookup + IoU spatial fallback; holds labels 4s through occlusion/blur |
+| **Fast-Confirm** | High-confidence frames (≥0.42 live / ≥0.60 upload) bypass voter for instant identification |
+| **EXIF-Aware Decode** | Pillow `exif_transpose` corrects phone selfie orientation before detection |
 | **Web Interface** | FastAPI + vanilla JS dashboard with gallery, identification, video, experiments, audit log |
 | **RBAC** | JWT authentication with role-based access control |
 
@@ -74,18 +81,31 @@ dlib + InsightFace 5-pt Alignment → 112×112
 
 ## Recent Updates
 
-- **🛡️ Passive liveness detection (anti-spoofing)** — `src/liveness.py` PassiveLivenessDetector uses LBP texture entropy, FFT frequency peak analysis, and gradient coherence scoring to reject presentation attacks (printed photos, screen replays, video) in ~3ms. Integrated into `/identify`, `/identify/frame`, and live WebSocket stream. Configurable via Config page toggle + sensitivity slider. No model download required.
-- **Embedding cache** — `src/embedding_cache.py` caches feature vectors by MD5 hash of source image; retrains drop from ~15s to ~2s after the first run (10× faster)
-- **Parallel feature extraction** — `pipeline.py` uses `ThreadPoolExecutor` to run HOG, LBP, Geometry, and ArcFace concurrently on each face crop (faster inference on multi-core CPUs)
-- **PCA variance raised to 99%** — retains more discriminative components; +2–5% accuracy on degraded UAV images
-- **Test-Time Augmentation (TTA)** — `identify.py` averages embeddings over 5 augmented variants of each query face before FAISS matching (+3–8% accuracy on compressed/blurry frames)
-- **Incremental retrain** — `retrain.py` uses the embedding cache so only new/changed gallery images are re-processed; returns a meaningful message if no new images need encoding
-- **Offline / air-gapped deployment** — `offline_setup.py` pre-downloads all internet assets (fonts, InsightFace `buffalo_l`, dlib model); UI fonts are now self-hosted
-- **Local MongoDB support** — `.env` defaults to `mongodb://localhost:27017` (local Community Edition); three documented options: Atlas / local / disk-only
-- **Video enrollment** — Gallery accepts MP4/AVI/MOV/MKV uploads; frames are sampled at a configurable interval and each face is embedded independently
-- **Full-resolution video detection** — SCRFD receives frames at full resolution so 17–30px faces at UAV altitude are not lost on the internal 640×640 detection grid
-- **FAISS open-set matching** — replaced SVM-only identification with FAISS cosine search + threshold; `FAISS_THRESHOLD = 0.38` tuned for compressed UAV footage
-- **bcrypt authentication** — passwords hashed with salted bcrypt (replaces raw SHA-256)
+### 🆕 Latest (July 2026)
+
+- **🔍 Active blink liveness challenge** — `demo.js` now runs a fully browser-side blink detection challenge before opening the WebSocket stream. Pixel-level eye-strip brightness analysis (~12fps) detects a real blink (>2 consecutive dark frames) within a 10-second window. A printed photo or screen replay cannot blink — defeating presentation attacks without any server round-trip.
+- **🎯 Improved temporal identity tracking** — `video_demo.py` WebSocket stream now uses a dual-strategy tracker: **identity-name lookup** (primary, follows moving persons) + **spatial IoU fallback** (holds label when FAISS returns UNKNOWN due to blur or occlusion). Confirmed identities are held for 4 seconds (`HOLD_S=4.0`) so labels no longer flicker when subjects turn their heads.
+- **⚡ Fast-confirm threshold** — High-confidence frames (score ≥ 0.42 for live stream, ≥ 0.60 for video upload) now bypass the temporal voter and instantly confirm identity — eliminating the "UNKNOWN at start" delay for clear frontal views.
+- **📦 Mummy gallery enrolled** — New identity `mummy` added to `data/gallery/mummy/` from 22 video frames extracted via `extract_gallery_frames.py`. Embedding cache files (`.npy`/`.hash`) are pre-generated for instant retrain.
+- **🛠 Updated thresholds in `config.py`** — `FAISS_THRESHOLD` tuned to `0.35` for moving multi-person live cam (was 0.38); `LIVENESS_THRESHOLD` lowered to `0.45` (was 0.50) with 6-signal passive fusion; `DEFAULT_PCA_VARIANCE` raised to `0.99`; active blink config added (`BLINK_ENABLED`, `BLINK_EAR_THRESHOLD`, `BLINK_TIMEOUT_SEC`).
+- **🔬 EXIF-aware image decode** — `identify.py` uses Pillow `ImageOps.exif_transpose` before OpenCV decode so phone selfies (iOS/Android) are correctly oriented without manual rotation.
+- **🎥 Updated PDF guides** — `Face_Recognition_Pipeline_Explanation.pdf`, `Setup_Guide_Face_Recognition.pdf`, and `Army_Offline_Deployment_Guide.pdf` regenerated with latest architecture details, threshold tables, and deployment instructions.
+- **🔤 Unicode fix utility** — `fix_unicode.py` utility added to repair Windows CRLF / encoding issues in generated PDF scripts.
+
+### Previous Updates
+
+- **🛡️ Passive liveness detection (anti-spoofing)** — `src/liveness.py` PassiveLivenessDetector uses LBP texture entropy, FFT frequency peak analysis, and gradient coherence scoring to reject presentation attacks (~3ms). Integrated into `/identify`, `/identify/frame`, and live WebSocket stream.
+- **Embedding cache** — `src/embedding_cache.py` caches feature vectors by MD5 hash; retrains drop from ~15s to ~2s after first run (10× faster).
+- **Parallel feature extraction** — `pipeline.py` uses `ThreadPoolExecutor` to run HOG, LBP, Geometry, and ArcFace concurrently on each face crop.
+- **PCA variance raised to 99%** — retains more discriminative components; +2–5% accuracy on degraded UAV images.
+- **Test-Time Augmentation (TTA)** — `identify.py` averages embeddings over 5 augmented variants before FAISS matching (+3–8% accuracy on compressed/blurry frames).
+- **Incremental retrain** — embedding cache means only new/changed gallery images are re-processed.
+- **Offline / air-gapped deployment** — `offline_setup.py` pre-downloads all internet assets; UI fonts are self-hosted.
+- **Local MongoDB support** — `.env` supports Atlas / local Community Edition / disk-only fallback.
+- **Video enrollment** — Gallery accepts MP4/AVI/MOV/MKV; frames sampled at configurable interval.
+- **Full-resolution video detection** — SCRFD receives full-res frames so 17–30px faces at UAV altitude are not lost.
+- **FAISS open-set matching** — replaced SVM-only ID with FAISS cosine search + threshold.
+- **bcrypt authentication** — salted bcrypt replaces raw SHA-256.
 
 ---
 
@@ -351,25 +371,42 @@ The FAISS cosine threshold controls the boundary between known and unknown ident
 
 ```python
 # web/backend/config.py
-FAISS_THRESHOLD  = 0.38   # raised from 0.35 — TTA embeddings are more stable
-LIVENESS_ENABLED = True   # anti-spoofing: reject presentation attacks
-LIVENESS_THRESHOLD = 0.50 # liveness score < 0.50 = SPOOF DETECTED
+FAISS_THRESHOLD      = 0.35   # Tuned for moving multi-person live cam
+                               # (was 0.38 — lowered for motion-blurred faces)
+LIVENESS_ENABLED     = True   # anti-spoofing: reject presentation attacks
+LIVENESS_THRESHOLD   = 0.45  # Lowered from 0.50 — passive is now 6-signal fused
+
+# ── Active Liveness — Blink Challenge ──────────────────────────────────────
+BLINK_ENABLED        = True   # Set False to skip blink challenge (testing only)
+BLINK_EAR_THRESHOLD  = 0.25   # Eye Aspect Ratio below this → eye closed (blink)
+BLINK_TIMEOUT_SEC    = 7.0    # Seconds user has to complete the blink challenge
+BLINK_REQUIRED_COUNT = 1      # Number of blinks required to pass
+BLINK_CONSEC_FRAMES  = 2      # Min consecutive frames below EAR threshold = blink
 ```
 
 | Threshold | Effect |
 |---|---|
 | Higher (0.55+) | Fewer false accepts, more UNKNOWN results |
 | Lower (0.25–0.35) | More accepts, better for degraded/compressed video |
-| Default (0.38) | Tuned for compressed UAV footage with TTA |
+| Default (0.35) | Tuned for moving multi-person live cam with motion blur |
 
 ### Liveness / Anti-Spoofing
 
 | Setting | Effect |
 |---|---|
 | `LIVENESS_ENABLED=True` | Reject faces scoring below threshold |
-| `LIVENESS_THRESHOLD=0.50` | Balanced: blocks photos/screens, passes real faces |
+| `LIVENESS_THRESHOLD=0.45` | Default: 6-signal fusion, balanced for outdoor UAV |
 | `LIVENESS_THRESHOLD=0.60` | Stricter: better for controlled indoor checkpoints |
-| `LIVENESS_THRESHOLD=0.40` | Lenient: better for degraded outdoor UAV imagery |
+| `LIVENESS_THRESHOLD=0.35` | Lenient: better for highly degraded/compressed video |
+
+### Active Blink Challenge (Live Webcam)
+
+| Setting | Effect |
+|---|---|
+| `BLINK_ENABLED=True` | Require a real blink before WebSocket recognition opens |
+| `BLINK_TIMEOUT_SEC=7.0` | 7 seconds for the user to blink (browser-side timer) |
+| `BLINK_CONSEC_FRAMES=2` | Min 2 consecutive dark eye-strip frames counts as a blink |
+| `skipLivenessChallenge()` | JS function to bypass in demo/testing mode |
 
 ---
 
