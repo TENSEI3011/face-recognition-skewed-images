@@ -160,8 +160,23 @@ def _tta_embedding(pipe, face_img: np.ndarray) -> np.ndarray:
     return avg
 
 
-def _draw_result(image: np.ndarray, detection, labels, confs, threshold: float) -> np.ndarray:
-    """Draw bounding box and identity label on the image."""
+def _draw_result(
+    image: np.ndarray,
+    detection,
+    labels,
+    confs,
+    threshold: float,
+    known_override: bool | None = None,
+) -> np.ndarray:
+    """Draw bounding box and identity label on the image.
+
+    Parameters
+    ----------
+    known_override : bool | None
+        If provided, overrides the threshold comparison to decide the colour
+        and label.  Pass the ``is_known`` flag from FAISS/cosine matching so
+        the annotated image always agrees with the JSON response.
+    """
     vis = image.copy()
     if detection is None:
         return vis
@@ -171,7 +186,9 @@ def _draw_result(image: np.ndarray, detection, labels, confs, threshold: float) 
 
     top_label = labels[0] if labels else "UNKNOWN"
     top_conf  = confs[0]  if confs  else 0.0
-    is_known  = top_conf >= threshold
+    # Use the pre-computed is_known flag when available (FAISS threshold may
+    # differ from the form threshold passed to this function).
+    is_known  = known_override if known_override is not None else (top_conf >= threshold)
 
     color = (0, 200, 80) if is_known else (0, 60, 220)
     label_text = f"{top_label}  {top_conf*100:.1f}%" if is_known else f"UNKNOWN  {top_conf*100:.1f}%"
@@ -401,8 +418,11 @@ async def identify_face(
             for i, (lbl, conf) in enumerate(zip(labels, confs))
         ]
 
-    # Draw bounding box and label on the image
-    annotated = _draw_result(image_deg, detection, [top_label], [top_conf], threshold)
+    # Draw bounding box and label on the image.
+    # Pass is_known directly so the annotated image uses the FAISS threshold
+    # (FAISS_THRESHOLD ≈ 0.38) rather than the form's threshold (0.65).
+    annotated = _draw_result(image_deg, detection, [top_label], [top_conf], threshold,
+                             known_override=is_known)
 
 
 

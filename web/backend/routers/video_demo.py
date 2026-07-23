@@ -125,6 +125,24 @@ def _blur_score(image: np.ndarray) -> float:
     return float(cv2.Laplacian(gray, cv2.CV_64F).var())
 
 
+def _box_iou(a: dict, b: dict) -> float:
+    """
+    Compute Intersection-over-Union of two bounding boxes.
+
+    Each box is a dict with keys 'x', 'y', 'w', 'h'.
+    Returns a float in [0.0, 1.0].  Used by the WebSocket stream to match
+    the current frame's faces against previously-confirmed face positions, so
+    we can hold a confirmed identity label even when FAISS gives a bad frame.
+    """
+    ax, ay, aw, ah = a.get("x", 0), a.get("y", 0), a.get("w", 0), a.get("h", 0)
+    bx, by, bw, bh = b.get("x", 0), b.get("y", 0), b.get("w", 0), b.get("h", 0)
+    ix = max(0, min(ax + aw, bx + bw) - max(ax, bx))
+    iy = max(0, min(ay + ah, by + bh) - max(ay, by))
+    inter = ix * iy
+    union = aw * ah + bw * bh - inter
+    return inter / max(union, 1)
+
+
 def _draw_faces(frame: np.ndarray, faces: list, threshold: float) -> np.ndarray:
     """Draw bounding boxes and large, legible identity labels on the video frame."""
     vis = frame.copy()
@@ -228,6 +246,12 @@ def _predict_faces(
       1. FAISS matcher (in-memory, fastest, open-set aware) — preferred
       2. MongoDB cosine search                               — fallback
       3. SVM pipeline                                       — last resort
+
+    Liveness threshold note:
+      Webcam frames are JPEG-compressed before WebSocket transmission, which
+      reduces LBP entropy and chroma noise — making liveness scores artificially
+      lower for real live faces. We use a permissive 0.30 threshold for the video
+      path (use_blur_gate=True → live mode) vs the normal 0.45 for uploads.
     """
     orig_h, orig_w = frame.shape[:2]
 
@@ -263,7 +287,12 @@ def _predict_faces(
     detections = pipe.detector.detect(small)
     results = []
 
-    for det in detections[:4]:
+    # Live webcam path (use_blur_gate=True): use a lower liveness threshold
+    # because JPEG-compressed WebSocket frames score lower on LBP/chroma signals.
+    # Image upload path (use_blur_gate=False): use the configured threshold (0.45).
+    live_liveness_threshold = 0.30 if use_blur_gate else None  # None = use config default
+
+    for det in detections[:6]:   # Up to 6 faces — handles group scenarios
         try:
             bx, by, bw, bh = det["box"]
 
@@ -330,8 +359,14 @@ def _predict_faces(
             # ── 🛡️ Liveness / Anti-Spoofing Check ────────────────────────
             # Runs BEFORE embedding extraction to reject printed photos and
             # screen replays without wasting ArcFace inference time.
+            # Use a lower threshold for live webcam (JPEG compression reduces scores).
             liveness_result = check_liveness(aligned)
-            if not liveness_result["is_live"]:
+            live_score = liveness_result["score"]
+            liveness_thresh = live_liveness_threshold if live_liveness_threshold is not None \
+                else 0.45
+            face_is_live = live_score >= liveness_thresh
+
+            if not face_is_live:
                 results.append({
                     "box":           {"x": max(0, x), "y": max(0, y), "w": w, "h": h},
                     "identity":      "⚠️ SPOOF",
@@ -403,10 +438,38 @@ async def websocket_stream(websocket: WebSocket):
         return
 
     pipe = pipeline_service.get_pipeline()
-    threshold = 0.35
+    threshold = FAISS_THRESHOLD  # ← change this in config.py (FAISS_THRESHOLD) to affect all modes
 
-    # One voter per connection — garbage collected when connection closes
-    voter = TemporalVoter(window=10, min_votes=6, min_confidence=0.40, cooldown_s=1.5)
+    import time as _time
+
+    # ── Session-scoped identity tracking ──────────────────────────────────────
+    # confirmed_faces: list of dicts, one per known face currently on-screen.
+    # Each entry: {identity, box, confirmed_at, last_seen_at, miss_frames}
+    #
+    # WHY THIS APPROACH (spatial tracking + hold):
+    #   FAISS cosine similarity varies ±0.05–0.10 across consecutive frames due
+    #   to JPEG compression, motion blur, and lighting changes.  A voter alone
+    #   doesn't prevent flickering because it resets when the key changes from
+    #   the identity name to "UNKNOWN" (different voter bucket).
+    #
+    #   Solution: track confirmed faces by their BOUNDING BOX POSITION (IoU).
+    #   Once confirmed, hold the identity label for HOLD_S seconds at that
+    #   position even if FAISS temporarily fails.  Reset only when the face
+    #   genuinely leaves the camera (no overlapping box for HOLD_S seconds).
+    confirmed_faces: list = []   # [{identity, box, confirmed_at, last_seen_at, miss_frames}]
+
+    # Per-identity voter (used only for borderline 0.38–0.50 confidence scores)
+    identity_voters: dict[str, TemporalVoter] = {}
+
+    # Thresholds — tuned for 3-person moving scenario
+    FAST_CONFIRM_CONF = 0.42   # ↓ from 0.50: moving faces score slightly lower,
+                               #   0.42 confirms enrolled persons faster without
+                               #   risking false-positive on the unenrolled person
+                               #   (who typically scores < 0.25)
+    HOLD_S            = 4.0    # ↑ from 3.0: hold the label for 4 s so that when
+                               #   someone turns their head or another person walks
+                               #   in front, the name doesn't flicker to UNKNOWN
+    MIN_IOU           = 0.25   # spatial overlap needed to match current box to stored
 
     try:
         while True:
@@ -419,7 +482,8 @@ async def websocket_stream(websocket: WebSocket):
                     threshold = float(msg["threshold"])
                     await websocket.send_json({"type": "config_ack", "threshold": threshold})
                 if msg.get("type") == "reset_voter":
-                    voter.reset()
+                    confirmed_faces.clear()
+                    identity_voters.clear()
                     await websocket.send_json({"type": "voter_reset"})
                 continue
             except Exception:
@@ -436,52 +500,172 @@ async def websocket_stream(websocket: WebSocket):
                 continue
 
             # Run inference in thread pool to avoid blocking the event loop
-            loop  = asyncio.get_running_loop()
-            # Use 640px for live stream (was 320 — too aggressive for typical webcams)
+            loop = asyncio.get_running_loop()
             faces = await loop.run_in_executor(
                 None, _predict_faces, pipe, frame, threshold, 640)
 
-            # ── Temporal voting ───────────────────────────────────────────
-            if faces:
-                best_face   = max(faces, key=lambda f: f.get("confidence", 0.0))
-                vote_result = voter.update(
-                    label=best_face.get("identity", "UNKNOWN"),
-                    confidence=best_face.get("confidence", 0.0),
-                )
-                if vote_result["confirmed"] and vote_result["is_known"]:
-                    for f in faces:
-                        f["temporal_identity"]  = vote_result["identity"]
-                        f["temporal_confirmed"] = True
-                else:
-                    for f in faces:
-                        f["temporal_identity"]  = "UNKNOWN"
-                        f["temporal_confirmed"] = False
-            else:
-                voter.reset()
-                vote_result = {"identity": "UNKNOWN", "confirmed": False,
-                               "votes": 0, "is_known": False}
+            now = _time.time()
 
-            # Use temporally confirmed identity for the response
-            display_faces = []
+            # ── Expire stale confirmed faces ────────────────────────────────
+            # Remove any confirmed face that hasn't been seen for HOLD_S seconds.
+            confirmed_faces[:] = [
+                cf for cf in confirmed_faces
+                if now - cf["last_seen_at"] < HOLD_S
+            ]
+
+            # ── Build display faces ─────────────────────────────────────────
+            #
+            # For each detected face this frame:
+            #  1. Look up the best matching confirmed slot using TWO strategies:
+            #     A) IDENTITY-NAME (primary) — finds slot for this person by name.
+            #        Works even when the face has MOVED, because tracking follows
+            #        WHO the person is, not WHERE they were last frame.
+            #     B) SPATIAL IoU (fallback) — finds slot nearest current box.
+            #        Used when FAISS returns UNKNOWN (blur / profile / bad frame)
+            #        but the face is still near its last confirmed position.
+            #  2a. FAISS returned a known identity → confirm/refresh slot by name.
+            #  2b. FAISS returned UNKNOWN → hold label via IoU, or show UNKNOWN.
+            display_faces       = []
+            matched_cf_indices  = set()   # prevents two faces claiming the same slot
+            any_confirmed_identity = "UNKNOWN"
+            any_confirmed       = False
+
             for f in faces:
+                raw_label = f.get("identity", "UNKNOWN")
+                raw_conf  = f.get("confidence", 0.0)
+                is_known  = f.get("is_known", False)
+                cur_box   = f.get("box", {})
                 df = dict(f)
-                if f.get("temporal_confirmed"):
-                    df["identity"] = f["temporal_identity"]
-                    df["is_known"] = True
+
+                # ── Step 1: find best slot ──────────────────────────────────
+                best_ci_name = None   # slot matched by identity name
+                best_ci_iou  = None   # slot matched by spatial IoU
+                best_iou     = MIN_IOU - 0.001
+
+                for ci, cf in enumerate(confirmed_faces):
+                    if ci in matched_cf_indices:
+                        continue
+                    # A) Name lookup (primary — used when FAISS gave a real name)
+                    if is_known and raw_label != "UNKNOWN":
+                        if cf["identity"] == raw_label and best_ci_name is None:
+                            best_ci_name = ci
+                    # B) IoU lookup (fallback — always computed)
+                    iou = _box_iou(cur_box, cf["box"])
+                    if iou > best_iou:
+                        best_iou    = iou
+                        best_ci_iou = ci
+
+                # ── Step 2a: FAISS returned a real identity ─────────────────
+                if is_known and raw_label != "UNKNOWN":
+                    # Name-match first (works through movement), IoU as fallback
+                    best_ci = best_ci_name if best_ci_name is not None else best_ci_iou
+
+                    if raw_conf >= FAST_CONFIRM_CONF:
+                        # High confidence → fast-confirm / refresh existing slot
+                        if best_ci is not None:
+                            cf = confirmed_faces[best_ci]
+                            cf["identity"]     = raw_label
+                            cf["box"]          = cur_box   # track new position
+                            cf["confirmed_at"] = now
+                            cf["last_seen_at"] = now
+                            cf["miss_frames"]  = 0
+                            cf["best_conf"]    = raw_conf  # store for IoU-hold path
+                        else:
+                            confirmed_faces.append({
+                                "identity":     raw_label,
+                                "box":          cur_box,
+                                "confirmed_at": now,
+                                "last_seen_at": now,
+                                "miss_frames":  0,
+                                "best_conf":    raw_conf,  # store for IoU-hold path
+                            })
+                            best_ci = len(confirmed_faces) - 1
+                        df["identity"] = raw_label
+                        df["is_known"] = True
+
+                    elif best_ci is not None:
+                        # Borderline (0.38–0.50) but already confirmed — refresh
+                        cf = confirmed_faces[best_ci]
+                        cf["box"]          = cur_box   # slot follows moving face
+                        cf["last_seen_at"] = now
+                        cf["miss_frames"]  = 0
+                        cf["best_conf"]    = max(cf.get("best_conf", 0.0), raw_conf)
+                        df["identity"]   = cf["identity"]
+                        df["confidence"] = raw_conf    # show real current score
+                        df["is_known"]   = True
+
+                    else:
+                        # First time at borderline confidence → voter
+                        vk = raw_label
+                        if vk not in identity_voters:
+                            identity_voters[vk] = TemporalVoter(
+                                window=4, min_votes=3,
+                                min_confidence=0.38, cooldown_s=2.0,
+                            )
+                        vr = identity_voters[vk].update(label=raw_label, confidence=raw_conf)
+                        if vr["confirmed"] and vr["is_known"]:
+                            confirmed_faces.append({
+                                "identity":     raw_label,
+                                "box":          cur_box,
+                                "confirmed_at": now,
+                                "last_seen_at": now,
+                                "miss_frames":  0,
+                                "best_conf":    raw_conf,  # store for IoU-hold path
+                            })
+                            best_ci = len(confirmed_faces) - 1
+                            df["identity"] = raw_label
+                            df["is_known"] = True
+                        else:
+                            df["identity"] = "UNKNOWN"
+                            df["is_known"] = False
+                            best_ci = None
+
+                    if best_ci is not None:
+                        matched_cf_indices.add(best_ci)
+                        any_confirmed_identity = df["identity"]
+                        any_confirmed = True
+
+                # ── Step 2b: FAISS returned UNKNOWN ────────────────────────
+                # Person turned away, motion blur, or genuinely not enrolled.
+                # Use IoU only — no identity name to look up.
+                else:
+                    if best_ci_iou is not None:
+                        # Face near a confirmed position → hold that label.
+                        # Use the LAST KNOWN GOOD confidence so the display never
+                        # shows 0.0% — that was the bug causing confusion.
+                        cf = confirmed_faces[best_ci_iou]
+                        cf["box"]         = cur_box
+                        cf["last_seen_at"] = now
+                        cf["miss_frames"] = cf.get("miss_frames", 0) + 1
+                        matched_cf_indices.add(best_ci_iou)
+                        df["identity"]   = cf["identity"]
+                        df["confidence"] = cf.get("best_conf", raw_conf)  # ← FIX: never 0.0
+                        df["is_known"]   = True
+                        any_confirmed_identity = cf["identity"]
+                        any_confirmed = True
+                    else:
+                        # No match → genuinely unknown person
+                        df["identity"] = "UNKNOWN"
+                        df["is_known"] = False
+
                 display_faces.append(df)
 
-            # Send ONLY face JSON — no JPEG frame.
-            # The client draws the live webcam directly and overlays these boxes,
-            # so we never need to encode/send a server-side annotated frame.
-            # This removes ~5–50ms of JPEG encode + base64 overhead per frame.
+            vote_result = {
+                "identity":  any_confirmed_identity,
+                "confirmed": any_confirmed,
+                "votes":     1 if any_confirmed else 0,
+                "is_known":  any_confirmed,
+            }
+
+            # Send face data to client (client draws boxes on the live canvas)
             response = {
                 "type":  "frame",
                 "faces": display_faces,
                 "temporal_status": {
-                    "identity":  vote_result.get("identity",  "UNKNOWN"),
-                    "confirmed": vote_result.get("confirmed", False),
-                    "votes":     vote_result.get("votes",     0),
-                    "window":    voter.window,
+                    "identity":  vote_result["identity"],
+                    "confirmed": vote_result["confirmed"],
+                    "votes":     vote_result["votes"],
+                    "window":    4,
                 },
             }
             await websocket.send_json(response)

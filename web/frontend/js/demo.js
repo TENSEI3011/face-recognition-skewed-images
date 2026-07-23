@@ -149,14 +149,16 @@ async function startStream() {
   if (_canvas)  { _canvas.width = vw; _canvas.height = vh; }
   if (!_ctx && _canvas) _ctx = _canvas.getContext('2d');
 
-  // Inference canvas: fixed 320×240 — small enough for fast encode, large enough to detect faces
+  // Inference canvas: 640×480 — wide enough so each face in a group of 5–6
+  // people is at least 60px wide (well above ArcFace's reliable detection floor).
+  // 320×240 was too small: faces became ~30px in group shots → bad embeddings.
   _inferCanvas        = document.createElement('canvas');
-  _inferCanvas.width  = 320;
-  _inferCanvas.height = 240;
+  _inferCanvas.width  = 640;
+  _inferCanvas.height = 480;
 
   // Scale factors so face boxes (from server, in original-frame coords) map to display canvas
-  _scaleX = vw / 320;
-  _scaleY = vh / 240;
+  _scaleX = vw / 640;
+  _scaleY = vh / 480;
   _lastFaces = [];
 
   // Start the smooth 60fps display loop (draws webcam + overlays boxes)
@@ -485,7 +487,7 @@ function _sendFrame() {
     } else {
       _wsBusy = false;
     }
-  }, 'image/jpeg', 0.65);   // 0.65 quality — good enough for face detection, smaller payload
+  }, 'image/jpeg', 0.70);   // 0.70 quality at 640×480 — sharp enough for multi-person group detection
 }
 
 // ── Display loop (runs at 60fps via rAF, completely independent of inference) ──

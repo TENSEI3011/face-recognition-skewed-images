@@ -24,10 +24,12 @@ DEFAULT_MODALITIES   = ["hog", "lbp", "geometry", "arcface"]
 DEFAULT_PCA_VARIANCE = 0.99   # raised from 0.95 — more components → richer SVM subspace (+2-5% accuracy)
 DEFAULT_SVM_KERNEL   = "rbf"
 DEFAULT_THRESHOLD    = 0.45   # Cosine similarity gate for SVM fallback path
-FAISS_THRESHOLD      = 0.38   # Slightly raised from 0.35 — TTA embeddings are more stable
-                               #   so we can afford a tighter gate without losing recall.
-                               #   Raise to 0.45 if you get false positives, lower to 0.30
-                               #   if enrolled persons are not being recognised (tiny faces).
+FAISS_THRESHOLD      = 0.35   # Tuned for moving multi-person live cam:
+                               #   Moving faces score slightly lower due to motion blur.
+                               #   0.35 catches enrolled persons reliably; unenrolled
+                               #   persons typically score < 0.25 so UNKNOWN is still correct.
+                               #   Raise to 0.42 for stricter (fewer false positives).
+                               #   Lower to 0.30 only if enrolled persons are missed entirely.
 DEFAULT_TOP_K        = 3
 
 # ── Anti-Spoofing / Liveness Detection ────────────────────────────────────────
